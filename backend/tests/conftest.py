@@ -11,8 +11,12 @@ import boto3
 import pytest
 from moto import mock_aws
 
-# 테스트 전에 env를 설정해 실제 AWS를 호출하지 않게 한다
-os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+# 테스트 전에 env를 설정해 실제 AWS를 호출하지 않게 한다.
+# 리전은 명시적으로 고정한다(CI가 AWS_REGION을 ap-northeast-2로 주입해도
+# moto 픽스처가 만드는 us-east-1 테이블과 어긋나지 않도록). app.config의
+# settings.aws_region도 AWS_REGION을 읽으므로 둘 다 us-east-1로 강제한다.
+os.environ["AWS_REGION"] = "us-east-1"
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
 os.environ.setdefault("AWS_SECURITY_TOKEN", "testing")
