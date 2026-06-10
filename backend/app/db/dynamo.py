@@ -124,3 +124,26 @@ def get_quota_used(pk: str, sk: str) -> int:
     if item is None:
         return 0
     return int(item.get("faces", 0))
+
+
+def try_consume_quota(pk: str, sk: str, amount: int, limit: int, ttl: int) -> bool:
+    """한도 내에서만 원자적으로 faces 카운터를 증가시킨다.
+
+    증가 전 현재 값이 (limit - amount) 이하일 때만 증가가 성공한다. 한도를 넘으면
+    ConditionalCheckFailedException이 발생하고 False를 반환한다(증가 없음).
+    경쟁 조건 없이 정확하게 한도를 적용한다.
+    """
+    try:
+        get_table().update_item(
+            Key={"PK": pk, "SK": sk},
+            UpdateExpression="ADD #faces :n SET #ttl = if_not_exists(#ttl, :ttl)",
+            ConditionExpression="attribute_not_exists(#faces) OR #faces <= :max",
+            ExpressionAttributeNames={"#faces": "faces", "#ttl": "ttl"},
+            ExpressionAttributeValues={":n": amount, ":ttl": ttl, ":max": limit - amount},
+        )
+        return True
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        logger.exception("try_consume_quota failed: pk=%s sk=%s", pk, sk)
+        raise

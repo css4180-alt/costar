@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, persons, works
+from app.api import auth, match, persons, works
 from app.core.rekognition import ensure_collection
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(persons.router)
 app.include_router(works.router)
+app.include_router(match.router)
 
 
 @app.get("/api/health", tags=["health"])

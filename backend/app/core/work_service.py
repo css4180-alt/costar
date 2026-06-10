@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.core import image_utils, rekognition, s3
+from app.core import image_utils, quota, rekognition, s3
 from app.core.face_service import _EXT_BY_CONTENT_TYPE, ALLOWED_CONTENT_TYPES
 from app.db import dynamo
 
@@ -199,6 +199,9 @@ def _to_decimal(value: float):
 
 def _index_one_still(account: str, work_id: str, image_bytes: bytes, content_type: str) -> dict:
     """스틸 1장을 업로드·색인하고 결과(스틸 정보 + 매칭된 person_id)를 반환한다."""
+    # DetectFaces 1회 = 얼굴 연산 1개. 업로드 전에 차감해 한도 초과 시 객체를 남기지 않는다.
+    quota.consume(account, 1)
+
     ext = _EXT_BY_CONTENT_TYPE.get(content_type, "jpg")
     still_id = uuid.uuid4().hex
     image_key = f"works/{account}/{work_id}/{still_id}.{ext}"
@@ -213,6 +216,9 @@ def _index_one_still(account: str, work_id: str, image_bytes: bytes, content_typ
 
     # 1) 스틸 내 얼굴 검출
     faces = rekognition.detect_faces(bucket=s3.settings.s3_bucket, s3_key=image_key)
+
+    # 검출된 얼굴 수만큼 SearchFacesByImage를 호출하므로 그만큼 추가 차감한다.
+    quota.consume(account, len(faces))
 
     matched: dict[str, float] = {}  # person_id -> best similarity
     for face in faces:

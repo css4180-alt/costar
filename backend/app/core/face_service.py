@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.core import rekognition, s3
+from app.core import quota, rekognition, s3
 from app.db import dynamo
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,14 @@ def _person_sk(person_id: str) -> str:
 
 def _face_sk(person_id: str, face_id: str) -> str:
     return f"FACE#{person_id}#{face_id}"
+
+
+def _appear_p_sk(person_id: str, work_id: str) -> str:
+    return f"APPEAR#P#{person_id}#W#{work_id}"
+
+
+def _appear_w_sk(work_id: str, person_id: str) -> str:
+    return f"APPEAR#W#{work_id}#P#{person_id}"
 
 
 def _now_iso() -> str:
@@ -80,6 +88,10 @@ def _upload_and_index(account: str, person_id: str, image_bytes: bytes, content_
     얼굴이 검출되지 않으면 업로드한 S3 객체를 정리하고 400을 던진다.
     저장된 FACE# 아이템(dict)을 반환한다.
     """
+    # IndexFaces 1회 = 얼굴 연산 1개. 업로드 전에 쿼터를 차감해 한도 초과 시
+    # S3에 객체를 남기지 않는다.
+    quota.consume(account, 1)
+
     ext = _EXT_BY_CONTENT_TYPE.get(content_type, "jpg")
     image_key = f"persons/{account}/{person_id}/{uuid.uuid4().hex}.{ext}"
     s3.put_object(image_key, image_bytes, content_type=content_type)
@@ -175,11 +187,12 @@ def add_face(account: str, person_id: str, image_bytes: bytes, content_type: str
 def delete_person(account: str, person_id: str) -> None:
     """인물 삭제 캐스케이드.
 
-    FACE# 조회 → Rekognition DeleteFaces → S3 객체 삭제 → PERSON#·FACE# DDB 삭제.
-    출연(APPEAR#) 정리는 Step 3에서 추가된다.
+    FACE# 조회 → Rekognition DeleteFaces → S3 객체 삭제 → PERSON#·FACE#·APPEAR#(양방향)
+    DDB 삭제.
     """
     _get_person_item(account, person_id)  # 존재 확인
     face_items = dynamo.query_pk_sk_prefix(_pk(account), f"FACE#{person_id}#")
+    appear_items = dynamo.query_pk_sk_prefix(_pk(account), f"APPEAR#P#{person_id}#")
 
     rekognition_face_ids = [
         f["rekognition_face_id"] for f in face_items if f.get("rekognition_face_id")
@@ -193,5 +206,10 @@ def delete_person(account: str, person_id: str) -> None:
 
     keys_to_delete: list[tuple[str, str]] = [(_pk(account), _person_sk(person_id))]
     keys_to_delete += [(f["PK"], f["SK"]) for f in face_items]
+    for ap in appear_items:
+        # SK = APPEAR#P#{person_id}#W#{work_id}
+        work_id = ap["SK"].split("#W#", 1)[1]
+        keys_to_delete.append((_pk(account), _appear_p_sk(person_id, work_id)))
+        keys_to_delete.append((_pk(account), _appear_w_sk(work_id, person_id)))
     dynamo.batch_delete(keys_to_delete)
     logger.info("person deleted: account=%s person_id=%s", account, person_id)

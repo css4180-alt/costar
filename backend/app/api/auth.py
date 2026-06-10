@@ -1,13 +1,12 @@
 """로그인 및 현재 세션/쿼터 조회 엔드포인트."""
 
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
 from app.config import settings
+from app.core import quota
 from app.core.auth import LOCAL_ACCOUNT, AccountDep, authenticate, issue_token
-from app.db import dynamo
 from app.schemas.auth import LoginRequest, LoginResponse, QuotaInfo
 
 logger = logging.getLogger(__name__)
@@ -15,26 +14,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def _quota_info(account: str) -> QuotaInfo:
-    """DynamoDB에서 오늘 날짜 쿼터를 조회해 QuotaInfo를 만든다.
-
-    Step 1에서는 카운터 아이템이 없으면 used=0으로 처리한다.
-    """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    acct_used = dynamo.get_quota_used(f"QUOTA#{today}", f"ACCT#{account}")
-    site_used = dynamo.get_quota_used(f"QUOTA#{today}", "SITE")
-
-    acct_limit = settings.daily_faces_per_account
-    site_limit = settings.site_daily_faces_limit
-
+    """오늘 날짜의 계정·사이트 쿼터 사용량/잔여를 QuotaInfo로 반환한다."""
     return QuotaInfo(
         account=account,
         auth_enabled=settings.auth_enabled,
-        account_limit=acct_limit,
-        account_used=acct_used,
-        account_remaining=max(0, acct_limit - acct_used),
-        site_limit=site_limit,
-        site_used=site_used,
-        site_remaining=max(0, site_limit - site_used),
+        **quota.remaining(account),
     )
 
 
