@@ -114,7 +114,7 @@ npm run dev   # http://127.0.0.1:5173 (/api 는 8000으로 프록시)
 
 ```bash
 cd backend
-pip install pytest "moto[all]" ruff
+pip install pytest "moto[all]" ruff httpx
 ruff check app tests
 pytest -q
 ```

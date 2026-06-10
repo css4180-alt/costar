@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest "moto[all]" ruff
+          pip install pytest "moto[all]" ruff httpx
 
       - name: Ruff 린트
         working-directory: backend
