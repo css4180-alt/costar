@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CoStar — 서버리스 얼굴 인식 공동 출연 서비스.
+  Lambda(컨테이너) + Function URL + DynamoDB + S3(미디어/정적) + CloudFront + Rekognition.
+  리전: ap-northeast-2(서울). CloudFront 기본 도메인 사용($0, ACM 불필요).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 파라미터 — 시크릿(AccessCodes/AuthSecret)은 NoEcho. CI에서 GitHub Secrets로 주입.
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  AccessCodes:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: '"패스코드:계정,..." 형식. 비우면 인증/쿼터 OFF(로컬/데모).'
+  AuthSecret:
+    Type: String
+    NoEcho: true
+    Default: dev-insecure-secret-change-me
+    Description: 토큰 서명용 HMAC 시크릿.
+  RekognitionCollectionId:
+    Type: String
+    Default: costar-persons
+  FaceMatchThreshold:
+    Type: Number
+    Default: 90
+  DetectMinConfidence:
+    Type: Number
+    Default: 80
+  PresignTtlSeconds:
+    Type: Number
+    Default: 600
+  DailyFacesPerAccount:
+    Type: Number
+    Default: 500
+  SiteDailyFacesLimit:
+    Type: Number
+    Default: 3000
+  TokenTtlHours:
+    Type: Number
+    Default: 24
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 1024
+
+Resources:
+  # ── DynamoDB 단일 테이블 ─────────────────────────────────────────────────
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: costar
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── S3 미디어 버킷(원본 이미지, 완전 비공개 — presigned URL로만 접근) ──────
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub costar-media-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+
+  # ── S3 정적 버킷(Vue SPA, 비공개 — CloudFront OAC로만 접근) ────────────────
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub costar-site-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # ── Lambda(FastAPI + Mangum, 컨테이너 이미지) ────────────────────────────
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          REKOGNITION_COLLECTION_ID: !Ref RekognitionCollectionId
+          FACE_MATCH_THRESHOLD: !Ref FaceMatchThreshold
+          DETECT_MIN_CONFIDENCE: !Ref DetectMinConfidence
+          DDB_TABLE: !Ref Table
+          S3_BUCKET: !Ref MediaBucket
+          PRESIGN_TTL_SECONDS: !Ref PresignTtlSeconds
+          ACCESS_CODES: !Ref AccessCodes
+          AUTH_SECRET: !Ref AuthSecret
+          DAILY_FACES_PER_ACCOUNT: !Ref DailyFacesPerAccount
+          SITE_DAILY_FACES_LIMIT: !Ref SiteDailyFacesLimit
+          TOKEN_TTL_HOURS: !Ref TokenTtlHours
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+        - Statement:
+            - Sid: Rekognition
+              Effect: Allow
+              Action:
+                - rekognition:CreateCollection
+                - rekognition:IndexFaces
+                - rekognition:SearchFacesByImage
+                - rekognition:DetectFaces
+                - rekognition:DeleteFaces
+                - rekognition:ListCollections
+              Resource: '*'
+    Metadata:
+      DockerContext: ../backend
+      Dockerfile: Dockerfile
+      DockerTag: latest
+
+  # Function URL: IAM 인증 — CloudFront OAC(sigv4)만 호출 가능, 공개 노출 없음.
+  ApiFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref ApiFunction
+      AuthType: AWS_IAM
+
+  # CloudFront 배포가 Function URL을 호출하도록 허용(SourceArn으로 배포 한정).
+  ApiFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+
+  # ── CloudFront OAC(Origin Access Control) ────────────────────────────────
+  SiteOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub costar-site-oac-${AWS::StackName}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ApiOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub costar-api-oac-${AWS::StackName}
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # ── CloudFront 단일 배포: "/*"→정적 S3, "/api/*"→Lambda Function URL ──────
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: CoStar SPA + API
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_200
+        HttpVersion: http2and3
+        Origins:
+          - Id: site-s3
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref SiteOac
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: api-lambda
+            DomainName: !Select [2, !Split ['/', !GetAtt ApiFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !Ref ApiOac
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: site-s3
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          # AWS 관리형 CachePolicy: CachingOptimized
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api-lambda
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            # CachingDisabled + AllViewerExceptHostHeader(원본 sigv4용 Host 제외)
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+  # SiteBucket은 이 배포(OAC)에서만 GetObject 허용.
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOacRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${SiteBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+
+Outputs:
+  CloudFrontUrl:
+    Description: 데모 접속 URL(CloudFront 기본 도메인)
+    Value: !Sub https://${Distribution.DomainName}
+  DistributionId:
+    Description: CloudFront 배포 ID(무효화용)
+    Value: !Ref Distribution
+  SiteBucketName:
+    Description: 프론트 정적 버킷(빌드 산출물 동기화 대상)
+    Value: !Ref SiteBucket
+  MediaBucketName:
+    Description: 원본 이미지 버킷
+    Value: !Ref MediaBucket
+  TableName:
+    Value: !Ref Table
