@@ -77,11 +77,22 @@ jobs:
 
       - name: 스택 출력 읽기
         id: stack
+        env:
+          # 일시적 네트워크 오류(연결 타임아웃)에 대비한 재시도 설정.
+          AWS_MAX_ATTEMPTS: '5'
+          AWS_RETRY_MODE: standard
         run: |
-          SITE_BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='SiteBucketName'].OutputValue" --output text)
-          DIST_ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)
+          read_output() {
+            for i in 1 2 3 4 5; do
+              val=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+                --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text) && \
+                [ -n "$val" ] && { echo "$val"; return 0; }
+              echo "  ($1) 재시도 $i/5..." >&2; sleep 5
+            done
+            return 1
+          }
+          SITE_BUCKET=$(read_output SiteBucketName)
+          DIST_ID=$(read_output DistributionId)
           echo "site_bucket=$SITE_BUCKET" >> "$GITHUB_OUTPUT"
           echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
 
