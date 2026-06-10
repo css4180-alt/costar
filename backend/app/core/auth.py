@@ -65,8 +65,16 @@ def authenticate(passcode: str) -> str | None:
     return settings.parse_access_codes().get(passcode.strip())
 
 
-def get_account(authorization: str | None = Header(default=None)) -> str:
-    """Bearer 토큰에서 계정을 추출하는 FastAPI 의존성.
+def get_account(
+    x_costar_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> str:
+    """토큰에서 계정을 추출하는 FastAPI 의존성.
+
+    토큰은 커스텀 헤더 ``X-Costar-Token``(권장)에서 우선 읽고, 없으면
+    ``Authorization: Bearer ...``에서 읽는다. CloudFront OAC로 Lambda
+    Function URL을 호출할 때 ``Authorization`` 헤더는 sigv4 서명에 쓰이므로,
+    앱 토큰은 별도 헤더로 전달해 충돌을 피한다.
 
     인증 비활성 시에는 누구나 로컬 계정으로 통과한다. 활성 상태에서 토큰이
     없거나 유효하지 않으면 401을 반환한다.
@@ -74,9 +82,15 @@ def get_account(authorization: str | None = Header(default=None)) -> str:
     if not settings.auth_enabled:
         return LOCAL_ACCOUNT
 
-    if not authorization or not authorization.lower().startswith("bearer "):
+    token: str | None = None
+    if x_costar_token:
+        token = x_costar_token.strip()
+    elif authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+
+    if not token:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
-    account = verify_token(authorization.split(" ", 1)[1].strip())
+    account = verify_token(token)
     if account is None:
         raise HTTPException(status_code=401, detail="세션이 만료되었습니다. 다시 로그인해 주세요.")
     return account

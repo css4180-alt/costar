@@ -94,7 +94,9 @@ class Costar:
         self.base = base_url.rstrip("/")
         self.session = requests.Session()
         token = self._login(passcode)
-        self.session.headers["Authorization"] = f"Bearer {token}"
+        # CloudFront OAC가 Authorization 헤더를 sigv4 서명에 쓰므로, 배포 환경에서도
+        # 앱 토큰은 커스텀 헤더로 보낸다(로컬에서도 동일하게 동작).
+        self.session.headers["X-Costar-Token"] = token
 
     def _login(self, passcode: str) -> str:
         resp = self.session.post(

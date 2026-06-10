@@ -180,6 +180,25 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
+  # /api/* 원본 요청 정책: Host·Authorization을 제외한 모든 뷰어 헤더를 전달.
+  # - Host 제외: Function URL이 자신의 도메인을 Host로 받아야 한다.
+  # - Authorization 제외: OAC가 sigv4 서명을 이 헤더에 넣으므로 비워둬야 한다.
+  #   (앱 토큰은 X-Costar-Token 커스텀 헤더로 전달되어 그대로 통과한다.)
+  ApiOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub costar-api-orp-${AWS::StackName}
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers:
+            - host
+            - authorization
+        CookiesConfig:
+          CookieBehavior: all
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
   # ── CloudFront 단일 배포: "/*"→정적 S3, "/api/*"→Lambda Function URL ──────
   Distribution:
     Type: AWS::CloudFront::Distribution
@@ -215,9 +234,9 @@ Resources:
             ViewerProtocolPolicy: redirect-to-https
             Compress: true
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
-            # CachingDisabled + AllViewerExceptHostHeader(원본 sigv4용 Host 제외)
+            # CachingDisabled(관리형) + 커스텀 원본 요청 정책(Host·Authorization 제외)
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
 
   # SiteBucket은 이 배포(OAC)에서만 GetObject 허용.
   SiteBucketPolicy:

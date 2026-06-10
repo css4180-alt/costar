@@ -19,10 +19,12 @@ export function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
-// 저장된 토큰을 Authorization 헤더로 만든다(없으면 빈 객체).
+// 저장된 토큰을 커스텀 헤더로 만든다(없으면 빈 객체).
+// CloudFront OAC가 Lambda Function URL 호출 시 Authorization 헤더를 sigv4
+// 서명에 사용하므로, 앱 토큰은 X-Costar-Token으로 보내 충돌을 피한다.
 function authHeaders() {
   const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  return token ? { 'X-Costar-Token': token } : {}
 }
 
 // 콜드 스타트 진행 상태를 UI에 알리는 훅(스토어가 등록).
