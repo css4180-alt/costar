@@ -25,8 +25,8 @@ Rekognition Collection = rag-chatbot의 ChromaDB와 동일 역할(얼굴 벡터 
 
 ```
                 ┌──────────────── CloudFront (HTTPS, 단일 도메인) ───────────────┐
-   브라우저 ──▶ │  기본 동작 "/*"      → S3 (Vue SPA 정적 호스팅)                  │
-                │  동작 "/api/*"       → Lambda Function URL (FastAPI + Mangum)   │
+   브라우저 ──▶ │  기본 동작 "/*"      → S3 (Vue SPA 정적 호스팅, OAC)             │
+                │  동작 "/api/*"       → API Gateway(HTTP API) → Lambda (Mangum)  │
                 └───────────────────────────────────────────────────────────────┘
                                               │
                          ┌────────────────────┼─────────────────────┐
@@ -37,8 +37,14 @@ Rekognition Collection = rag-chatbot의 ChromaDB와 동일 역할(얼굴 벡터 
 ```
 
 - **컴퓨트**: FastAPI 앱을 **Mangum**으로 감싸 **Lambda(컨테이너 이미지, py3.11)**.
-  엔드포인트는 **Lambda Function URL** + CloudFront OAC(서명)로 노출. (대안: API
-  Gateway HTTP API. Function URL이 더 단순·저렴.)
+  엔드포인트는 **API Gateway(HTTP API) → Lambda**로 노출하고, CloudFront origin이
+  주입하는 비밀 헤더 `X-Origin-Verify`(Lambda 미들웨어가 검증)로 직접 호출을 차단한다.
+  정적 S3 origin은 **OAC**로 보호한다.
+  - *원래 설계는 Lambda Function URL + OAC(sigv4)였으나 두 제약으로 변경했다:*
+    *① 공개(AuthType=NONE) Function URL이 일부 계정에서 차단되고,*
+    *② OAC+AWS_IAM은 브라우저가 POST 본문을 sigv4 사전 서명(`x-amz-content-sha256`)*
+    *해야 해 멀티파트 업로드 SPA에 부적합. HTTP API는 공개 엔드포인트가 정상*
+    *동작하고 모든 메서드/본문을 그대로 처리한다.*
 - **정적 프론트**: `vite build` → S3 → CloudFront. API와 **같은 도메인**이라 CORS 없음.
 - **이미지 서빙**: 버킷은 비공개. API가 **presigned GET URL**을 발급해 프론트가 표시
   (생체정보 보호 — 공개 버킷 금지).
@@ -127,7 +133,7 @@ FACE# 조회 → DeleteFaces(CollectionId, FaceIds=[...]) → S3 객체 삭제
 
 | Method | Path | 설명 | Auth |
 |---|---|---|---|
-| POST | `/api/auth/login` | 패스코드 → 토큰 | - |
+| POST | `/api/auth/enter` | **패스코드 없이** demo 계정 토큰 발급(입장 버튼) | - |
 | GET  | `/api/auth/me` | 토큰 검증 + 쿼터 | Bearer |
 | GET/POST | `/api/persons` | 인물 목록 / 등록 | Bearer |
 | GET/DELETE | `/api/persons/{id}` | 상세(출연 포함) / 삭제 | Bearer |
@@ -140,26 +146,37 @@ FACE# 조회 → DeleteFaces(CollectionId, FaceIds=[...]) → S3 객체 삭제
 | GET  | `/api/health` | 헬스체크 | - |
 
 - 이미지는 presigned URL로 응답에 동봉(별도 서빙 라우트 불필요).
-- 인증/토큰(HMAC 패스코드)은 rag-chatbot `core/auth.py` 그대로 이식.
-- 멀티테넌시: 모든 아이템 PK에 `ACCT#{account}` → 자연 격리.
+- **인증(공개 데모용 무패스워드):** 면접관이 비밀번호를 모를 수 있으므로 로그인
+  화면은 **패스코드 입력 없이 "입장" 버튼 하나**. 버튼이 `POST /api/auth/enter`를
+  호출하면 서버가 고정 **demo 계정**으로 HMAC 토큰을 발급한다. 토큰 서명·검증
+  메커니즘(`core/auth.py`)은 rag-chatbot에서 이식하되, 패스코드→계정 매핑 대신
+  **항상 `DEMO_ACCOUNT`를 반환**한다. 비용 보호는 아래 쿼터가 담당.
+- 멀티테넌시: 모든 아이템 PK에 `ACCT#{account}` → 자연 격리(현재는 demo 단일 계정,
+  추후 패스코드 계정 추가 시 그대로 확장 가능).
 
 ---
 
 ## 6. 쿼터 (DynamoDB 카운터)
 
-Rekognition은 **API 호출당 과금**. "얼굴 연산 수"를 일일 카운트.
+Rekognition은 **API 호출당 과금**. 무패스워드라 모든 방문자가 **demo 계정을 공유**
+하므로, 쿼터가 사실상 유일한 비용 방어선이다. "얼굴 연산 수"를 일일 카운트.
 
-- `UpdateItem(PK=QUOTA#date, SK=ACCT#acct, ADD faces :n, SET ttl=...)` 원자적 증가
-  후 한도 검사. 사이트 합산은 `SK=SITE`.
-- `DAILY_FACES_PER_ACCOUNT`, `SITE_DAILY_FACES_LIMIT`. UTC 자정 경계, TTL 자동만료.
+- `UpdateItem(PK=QUOTA#date, SK=ACCT#demo, ADD faces :n, SET ttl=...)` 원자적 증가
+  후 한도 검사. 사이트 합산은 `SK=SITE`(이중 캡).
+- `DAILY_FACES_PER_ACCOUNT`(demo 공유 풀), `SITE_DAILY_FACES_LIMIT`. UTC 자정 경계,
+  TTL 자동만료. 초과 시 429 + 안내 메시지.
+- 공유 계정이라 한 방문자가 풀을 소진하면 그날은 모두 제한됨 → 한도를 **보수적으로**
+  잡고(데모 충분), 비용 폭주만 막는 목적. 필요 시 IP/세션 단위 소프트 제한은 추후 옵션.
 - `/api/auth/me`에 잔여량 노출 → 프론트 헤더 칩(rag-chatbot UI 재사용).
 
 ---
 
 ## 7. 프론트엔드 (Vue 3 + Vite, S3 호스팅)
 
-rag-chatbot의 store.js(단일 reactive store)·api/client.js·로그인 게이트·미리보기
-모달 패턴 재사용. `client.js`의 BASE는 **같은 도메인의 `/api`**.
+rag-chatbot의 store.js(단일 reactive store)·api/client.js·미리보기 모달 패턴 재사용.
+`client.js`의 BASE는 **같은 도메인의 `/api`**. 단, rag-chatbot의 패스코드 입력
+로그인 게이트는 **"입장(Enter)" 버튼 하나**로 단순화 — 클릭 시 `/api/auth/enter`로
+토큰을 받아 바로 입장(공개 데모라 누구나 demo 계정으로 진입).
 
 화면(탭 또는 3분할):
 1. **People**: 이름+드래그&드롭 등록, 인물 카드 그리드, 삭제.
@@ -183,10 +200,11 @@ DDB_TABLE=costar                 # DynamoDB 테이블명
 S3_BUCKET=costar-media-<suffix>  # 원본 이미지 버킷
 PRESIGN_TTL_SECONDS=600
 
-ACCESS_CODES=                    # "패스코드:계정,..." 비우면 인증/쿼터 OFF(로컬)
-AUTH_SECRET=dev-insecure-secret-change-me
-DAILY_FACES_PER_ACCOUNT=500
-SITE_DAILY_FACES_LIMIT=3000
+AUTH_ENABLED=true                # false면 로컬 개발용으로 인증/쿼터 우회
+DEMO_ACCOUNT=demo                # "입장" 버튼이 자동 로그인하는 고정 계정명
+AUTH_SECRET=dev-insecure-secret-change-me   # HMAC 토큰 서명키(운영은 교체)
+DAILY_FACES_PER_ACCOUNT=500      # demo 공유 풀 일일 한도
+SITE_DAILY_FACES_LIMIT=3000      # 사이트 전체 일일 한도(이중 캡)
 TOKEN_TTL_HOURS=24
 ```
 
@@ -203,8 +221,8 @@ SearchFacesByImage|DetectFaces|DeleteFaces|ListCollections`,
 ## 9. 배포 (IaC: AWS SAM)
 
 리소스가 많으므로 **AWS SAM(template.yaml, CloudFormation)** 로 선언적 관리:
-Lambda(컨테이너) · Function URL · DynamoDB 테이블 · S3 버킷(미디어/정적) ·
-CloudFront 배포 · IAM 역할 · (선택)ACM 인증서.
+Lambda(컨테이너) · API Gateway(HTTP API) · DynamoDB 테이블 · S3 버킷(미디어/정적) ·
+CloudFront 배포 · IAM 역할.
 
 - **backend/Dockerfile**: 베이스 `public.ecr.aws/lambda/python:3.11`, Pillow 포함,
   `CMD ["app.lambda_handler.handler"]` (`handler = Mangum(app)`).
