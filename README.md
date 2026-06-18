@@ -4,8 +4,9 @@
 > 인물을 이름 + 참조 사진으로 등록하고, 작품 스틸을 올리면 얼굴을 검출·대조해
 > 출연 관계를 색인한다. 이후 *"A와 B가 함께 나온 작품은?"* 을 교집합으로 답한다.
 
-CoStar는 **풀 서버리스**(AWS Lambda + DynamoDB + S3 + CloudFront + Rekognition)로
-구성되어, 상시 운영해도 비용이 사실상 **$0/월**이다. 포트폴리오 목적의 공개
+CoStar는 **풀 서버리스**(API Gateway + AWS Lambda + DynamoDB + S3 + CloudFront +
+Rekognition)로 구성되어, 트래픽이 0이면 비용도 0으로 스케일된다(쿼터로 상한을 둔
+데모 규모에서는 사실상 **$0/월**). 포트폴리오 목적의 공개
 프로젝트이며 특정 기업·도메인과 무관한 일반(generic) 데모다. "CoStar"는
 *co-starring*(공동 출연)을 가리키는 일반 영화 용어다.
 
@@ -28,7 +29,7 @@ CoStar는 **풀 서버리스**(AWS Lambda + DynamoDB + S3 + CloudFront + Rekogni
 ```
               ┌──────────────── CloudFront (HTTPS, 단일 도메인) ────────────────┐
    브라우저 ─▶ │  "/*"     → S3 (Vue SPA, OAC)                                   │
-              │  "/api/*" → Lambda Function URL (FastAPI + Mangum, OAC sigv4)   │
+              │  "/api/*" → API Gateway(HTTP API) → Lambda (FastAPI + Mangum)   │
               └────────────────────────────────────────────────────────────────┘
                                            │
                     ┌──────────────────────┼───────────────────────┐
@@ -41,10 +42,13 @@ CoStar는 **풀 서버리스**(AWS Lambda + DynamoDB + S3 + CloudFront + Rekogni
 - **API와 정적 프론트가 같은 도메인** → CORS 불필요.
 - **이미지 버킷은 완전 비공개.** API가 presigned GET URL을 발급해 프론트가 표시한다
   (생체정보 보호 — 공개 버킷 금지).
-- API는 **Lambda Function URL**로 노출되며, CloudFront가 origin 요청에 주입하는
-  **비밀 헤더(`X-Origin-Verify`)** 를 Lambda 미들웨어가 검증해 직접 호출을 차단한다.
-  (OAC sigv4 방식은 브라우저 POST 본문의 사전 서명을 요구해 SPA에 부적합하므로,
-  본문 있는 모든 메서드가 동작하는 비밀 헤더 게이트를 택했다. 정적 S3 origin은 OAC 사용.)
+- API는 **API Gateway(HTTP API) → Lambda** 로 노출되며, CloudFront가 origin 요청에
+  주입하는 **비밀 헤더(`X-Origin-Verify`)** 를 Lambda 미들웨어가 검증해 직접 호출을
+  차단한다. 정적 S3 origin은 **OAC**로 보호한다.
+  (Lambda Function URL은 ① 공개(AuthType=NONE)가 일부 계정에서 차단되고,
+  ② OAC+AWS_IAM은 브라우저 POST 본문의 sigv4 사전 서명을 요구해 SPA 업로드에
+  부적합하다. HTTP API는 공개 엔드포인트가 정상 동작하고 모든 메서드/본문을
+  그대로 처리해 채택했다.)
 
 ---
 
@@ -56,7 +60,7 @@ CoStar는 **풀 서버리스**(AWS Lambda + DynamoDB + S3 + CloudFront + Rekogni
 | 웹 | FastAPI + **Mangum**(Lambda 어댑터) |
 | 검증 | Pydantic v2 + pydantic-settings |
 | 얼굴 엔진 | AWS Rekognition Collections (`boto3`) |
-| 컴퓨트 | AWS Lambda (컨테이너 이미지) + Function URL |
+| 컴퓨트 | AWS Lambda (컨테이너 이미지) + API Gateway (HTTP API) |
 | DB | DynamoDB (단일 테이블) |
 | 이미지 | S3 (비공개, presigned GET) |
 | 프론트 | Vue 3 + Vite → S3 + CloudFront |

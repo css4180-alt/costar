@@ -142,28 +142,33 @@ Resources:
                 - rekognition:DeleteFaces
                 - rekognition:ListCollections
               Resource: '*'
+      Events:
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
     Metadata:
       DockerContext: ../backend
       Dockerfile: Dockerfile
       DockerTag: latest
 
-  # Function URL: AuthType=NONE. 직접 호출은 CloudFront origin이 주입하는
-  # 비밀 헤더(X-Origin-Verify)를 Lambda가 검증해 차단한다. OAC sigv4는
-  # 브라우저 POST 본문 서명을 요구해 SPA에 부적합하므로 사용하지 않는다.
-  ApiFunctionUrl:
-    Type: AWS::Lambda::Url
+  # API Gateway(HTTP API): Lambda 프록시. Lambda Function URL은 이 계정에서
+  # 공개(AuthType=NONE)가 차단되고, OAC+AWS_IAM은 브라우저 POST 본문 sigv4
+  # 서명을 요구해 SPA에 부적합하다. HTTP API는 공개 엔드포인트가 정상 동작하고
+  # 모든 메서드/본문을 그대로 처리하며, CloudFront origin이 주입하는 비밀 헤더
+  # (X-Origin-Verify)를 Lambda 미들웨어가 검증해 직접 호출을 차단한다.
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
     Properties:
-      TargetFunctionArn: !Ref ApiFunction
-      AuthType: NONE
-
-  # AuthType=NONE Function URL의 공개 호출 권한(보호는 비밀 헤더가 담당).
-  ApiFunctionUrlPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ApiFunction
-      Action: lambda:InvokeFunctionUrl
-      Principal: '*'
-      FunctionUrlAuthType: NONE
+      StageName: $default
 
   # ── CloudFront OAC(정적 S3 전용) ─────────────────────────────────────────
   SiteOac:
@@ -175,7 +180,7 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # ── CloudFront 단일 배포: "/*"→정적 S3, "/api/*"→Lambda Function URL ──────
+  # ── CloudFront 단일 배포: "/*"→정적 S3, "/api/*"→API Gateway(HTTP API) ────
   Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -191,8 +196,8 @@ Resources:
             OriginAccessControlId: !Ref SiteOac
             S3OriginConfig:
               OriginAccessIdentity: ''
-          - Id: api-lambda
-            DomainName: !Select [2, !Split ['/', !GetAtt ApiFunctionUrl.FunctionUrl]]
+          - Id: api-gateway
+            DomainName: !Sub ${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
             # 직접 호출 차단용 비밀 헤더(Lambda 미들웨어가 검증).
             OriginCustomHeaders:
               - HeaderName: X-Origin-Verify
@@ -209,7 +214,7 @@ Resources:
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
         CacheBehaviors:
           - PathPattern: /api/*
-            TargetOriginId: api-lambda
+            TargetOriginId: api-gateway
             ViewerProtocolPolicy: redirect-to-https
             Compress: true
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
