@@ -1,13 +1,11 @@
-"""공통 출연 질의와 사진→인물 식별 로직.
+"""사진→인물 식별과 공통 출연 탐색 로직.
 
-공통 출연(DESIGN §4-C): 선택된 각 person_id의 출연 작품 집합을 구해 교집합을
-계산한다. SQL JOIN/HAVING COUNT 대신 person별 조회 후 Python set 교집합으로
-동일한 결과를 얻는다(데모 규모라 N이 작다).
+analyze: 사진에서 여러 얼굴을 검출·식별한 뒤, 식별된 인물들의 출연 작품 집합을
+구해 교집합을 계산한다. SQL JOIN/HAVING COUNT 대신 person별 조회 후 Python set
+교집합으로 동일한 결과를 얻는다(데모 규모라 N이 작다).
 """
 
 import logging
-
-from fastapi import HTTPException
 
 from app.core import image_utils, quota, rekognition, s3
 from app.db import dynamo
@@ -20,12 +18,17 @@ def _pk(account: str) -> str:
 
 
 def _work_view(account: str, work_id: str) -> dict | None:
-    """WORK# 아이템 + 대표 스틸 presigned URL을 dict로 반환한다(없으면 None)."""
+    """WORK# 아이템 + 대표 이미지 presigned URL을 dict로 반환한다(없으면 None).
+
+    포스터가 있으면 우선 사용하고, 없으면 첫 스틸을 대표 이미지로 쓴다.
+    """
     work = dynamo.get_item(_pk(account), f"WORK#{work_id}")
     if work is None:
         return None
-    stills = dynamo.query_pk_sk_prefix(_pk(account), f"STILL#{work_id}#")
-    rep_key = stills[0].get("image_key") if stills else None
+    rep_key = work.get("poster_key")
+    if not rep_key:
+        stills = dynamo.query_pk_sk_prefix(_pk(account), f"STILL#{work_id}#")
+        rep_key = stills[0].get("image_key") if stills else None
     return {
         "id": work_id,
         "title": work.get("title", ""),
@@ -39,21 +42,6 @@ def _appearance_work_ids(account: str, person_id: str) -> set[str]:
     items = dynamo.query_pk_sk_prefix(_pk(account), f"APPEAR#P#{person_id}#")
     # SK = APPEAR#P#{person_id}#W#{work_id}
     return {it["SK"].split("#W#", 1)[1] for it in items}
-
-
-def common_works(account: str, person_ids: list[str]) -> list[dict]:
-    """선택된 인물들이 함께 출연한 작품 목록을 반환한다(제목순 정렬)."""
-    unique_ids = list(dict.fromkeys(pid for pid in person_ids if pid))
-    if len(unique_ids) < 2:
-        raise HTTPException(status_code=400, detail="인물을 2명 이상 선택해 주세요.")
-
-    work_id_sets = [_appearance_work_ids(account, pid) for pid in unique_ids]
-    common_ids = set.intersection(*work_id_sets) if work_id_sets else set()
-
-    works = [_work_view(account, wid) for wid in common_ids]
-    works = [w for w in works if w is not None]
-    works.sort(key=lambda w: w["title"])
-    return works
 
 
 def identify(account: str, image_bytes: bytes) -> dict:
@@ -120,7 +108,8 @@ def analyze(account: str, image_bytes: bytes) -> dict:
             "name": None,
             "similarity": None,
         }
-        crop = image_utils.crop_face(image_bytes, box)
+        # 너무 빡빡하게 자르면 매칭률이 떨어지므로 여백을 둔다.
+        crop = image_utils.crop_face(image_bytes, box, margin=0.25)
         matches = rekognition.search_faces_by_image_bytes(crop)
         if matches:
             top = matches[0]

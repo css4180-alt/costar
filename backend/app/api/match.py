@@ -6,22 +6,10 @@ from fastapi import APIRouter, File, UploadFile
 
 from app.core import matcher
 from app.core.auth import AccountDep
-from app.schemas.match import (
-    AnalyzeResponse,
-    IdentifyResponse,
-    MatchRequest,
-    MatchResponse,
-)
+from app.schemas.match import AnalyzeResponse, IdentifyResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["match"])
-
-
-@router.post("/match/common", response_model=MatchResponse)
-def common(request: MatchRequest, account: str = AccountDep) -> MatchResponse:
-    """선택된 인물들이 함께 출연한 작품을 반환한다."""
-    works = matcher.common_works(account, request.person_ids)
-    return MatchResponse(works=works)
 
 
 @router.post("/match/analyze", response_model=AnalyzeResponse)

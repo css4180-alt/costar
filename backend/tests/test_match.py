@@ -60,53 +60,6 @@ def _add_still(client, work_id: str, person_ids: list[str]):
         )
 
 
-def test_common_works_intersection(client):
-    alice = _create_person(client, "Alice")
-    bob = _create_person(client, "Bob")
-    carol = _create_person(client, "Carol")
-
-    # 작품1: Alice + Bob, 작품2: Alice + Bob, 작품3: Alice + Carol
-    w1 = _create_work(client, "Shared One")
-    w2 = _create_work(client, "Shared Two")
-    w3 = _create_work(client, "Solo")
-    _add_still(client, w1, [alice, bob])
-    _add_still(client, w2, [alice, bob])
-    _add_still(client, w3, [alice, carol])
-
-    # Alice ∩ Bob = {작품1, 작품2}
-    resp = client.post("/api/match/common", json={"person_ids": [alice, bob]})
-    assert resp.status_code == 200
-    works = resp.json()["works"]
-    titles = sorted(w["title"] for w in works)
-    assert titles == ["Shared One", "Shared Two"]
-
-    # Alice ∩ Carol = {작품3}
-    resp = client.post("/api/match/common", json={"person_ids": [alice, carol]})
-    titles = [w["title"] for w in resp.json()["works"]]
-    assert titles == ["Solo"]
-
-    # Bob ∩ Carol = {} (공통 없음)
-    resp = client.post("/api/match/common", json={"person_ids": [bob, carol]})
-    assert resp.json()["works"] == []
-
-
-def test_common_works_three_way(client):
-    a = _create_person(client, "A")
-    b = _create_person(client, "B")
-    c = _create_person(client, "C")
-    w = _create_work(client, "All Three")
-    _add_still(client, w, [a, b, c])
-
-    resp = client.post("/api/match/common", json={"person_ids": [a, b, c]})
-    assert [w["title"] for w in resp.json()["works"]] == ["All Three"]
-
-
-def test_common_works_requires_two(client):
-    a = _create_person(client, "A")
-    resp = client.post("/api/match/common", json={"person_ids": [a]})
-    assert resp.status_code == 422  # pydantic min_length=2
-
-
 def test_identify_match(client):
     alice = _create_person(client, "Alice")
     with patch(
@@ -205,7 +158,3 @@ def test_delete_person_cleans_appearances(client):
     detail = client.get(f"/api/works/{w}").json()
     assert len(detail["appearances"]) == 1
     assert detail["appearances"][0]["person_id"] == bob
-
-    # 공통 출연 질의에서도 Alice는 빠진다(교집합 비어야 함)
-    resp = client.post("/api/match/common", json={"person_ids": [alice, bob]})
-    assert resp.json()["works"] == []
