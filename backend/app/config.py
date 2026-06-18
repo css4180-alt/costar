@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # DynamoDB
     ddb_table: str = "costar"
 
+    # TMDB (작품 임포트). 비우면 임포트 기능 비활성.
+    tmdb_api_key: str = ""
+    # 임포트 비동기 워커용 SQS 큐 URL. 비우면 임포트를 동기 처리한다(로컬 개발).
+    import_queue_url: str = ""
+
     # S3
     s3_bucket: str = "costar-media"
     presign_ttl_seconds: int = 600

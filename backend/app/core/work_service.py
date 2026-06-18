@@ -197,6 +197,23 @@ def _to_decimal(value: float):
     return Decimal(str(round(value, 4)))
 
 
+def add_tmdb_appearance(account: str, person_id: str, work_id: str) -> None:
+    """TMDB 크레딧 기반 출연 관계를 양방향으로 기록한다.
+
+    스틸 얼굴 매칭이 아니라 TMDB 출연진 정보로 확정된 출연이므로 신뢰도를 100으로
+    두고 source=tmdb로 표시한다(멱등 — 재실행해도 동일 결과).
+    """
+    for sk in (_appear_p_sk(person_id, work_id), _appear_w_sk(work_id, person_id)):
+        dynamo.put_item(
+            {
+                "PK": _pk(account),
+                "SK": sk,
+                "confidence": _to_decimal(100.0),
+                "source": "tmdb",
+            }
+        )
+
+
 def _index_one_still(account: str, work_id: str, image_bytes: bytes, content_type: str) -> dict:
     """스틸 1장을 업로드·색인하고 결과(스틸 정보 + 매칭된 person_id)를 반환한다."""
     # DetectFaces 1회 = 얼굴 연산 1개. 업로드 전에 차감해 한도 초과 시 객체를 남기지 않는다.

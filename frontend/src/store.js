@@ -7,16 +7,19 @@ import {
   createWork,
   deletePerson,
   deleteWork,
+  getImportJob,
   getMe,
   getPerson,
   getWork,
   identify,
+  importWork,
   listPersons,
   listWorks,
   login,
   setToken,
   setUnauthorizedHandler,
   setWakingHandler,
+  tmdbSearch,
 } from './api/client.js'
 
 const TAB_KEY = 'costar.activeTab'
@@ -164,6 +167,24 @@ export const store = reactive({
   async removeWork(id) {
     await deleteWork(id)
     await this.loadWorks()
+  },
+
+  // ---- TMDB 임포트 ----
+  async searchTmdb(query) {
+    return tmdbSearch(query)
+  },
+
+  async startImport(tmdbMovieId) {
+    return importWork(tmdbMovieId)
+  },
+
+  async pollImport(jobId) {
+    return getImportJob(jobId)
+  },
+
+  // 임포트 완료 후 작품·인물·쿼터를 새로고침한다.
+  async refreshAfterImport() {
+    await Promise.all([this.loadWorks(), this.loadPersons(), this.refreshQuota()])
   },
 
   // ---- 매칭 ----

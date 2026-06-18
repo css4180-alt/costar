@@ -121,8 +121,17 @@ def _upload_and_index(account: str, person_id: str, image_bytes: bytes, content_
     return face_item
 
 
-def create_person(account: str, name: str, image_bytes: bytes, content_type: str) -> dict:
-    """인물을 등록한다: S3 업로드 → IndexFaces → PERSON#·FACE# 저장."""
+def create_person(
+    account: str,
+    name: str,
+    image_bytes: bytes,
+    content_type: str,
+    tmdb_id: str | None = None,
+) -> dict:
+    """인물을 등록한다: S3 업로드 → IndexFaces → PERSON#·FACE# 저장.
+
+    tmdb_id가 주어지면 PERSON# 아이템에 저장해 TMDB 임포트의 중복 등록을 방지한다.
+    """
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
@@ -142,9 +151,23 @@ def create_person(account: str, name: str, image_bytes: bytes, content_type: str
         "rep_key": face_item["image_key"],
         "created_at": _now_iso(),
     }
+    if tmdb_id:
+        person_item["tmdb_id"] = str(tmdb_id)
     dynamo.put_item(person_item)
     logger.info("person created: account=%s person_id=%s", account, person_id)
     return _person_view(person_item)
+
+
+def find_person_id_by_tmdb_id(account: str, tmdb_id: str) -> str | None:
+    """계정 내에서 같은 tmdb_id로 등록된 인물의 id를 찾는다(없으면 None).
+
+    데모 규모(인물 수가 작음)라 PERSON# 목록을 훑어 매칭한다.
+    """
+    target = str(tmdb_id)
+    for item in dynamo.query_pk_sk_prefix(_pk(account), "PERSON#"):
+        if str(item.get("tmdb_id")) == target:
+            return item["SK"].split("#", 1)[1]
+    return None
 
 
 def list_persons(account: str) -> list[dict]:

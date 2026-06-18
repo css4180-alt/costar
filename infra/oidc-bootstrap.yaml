@@ -83,6 +83,7 @@ Resources:
                   - dynamodb:*
                   - cloudfront:*
                   - apigateway:*
+                  - sqs:*
                 Resource: '*'
               - Sid: Storage
                 Effect: Allow

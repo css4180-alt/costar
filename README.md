@@ -17,6 +17,9 @@ Rekognition)로 구성되어, 트래픽이 0이면 비용도 0으로 스케일�
 - **인물(People)**: 이름 + 대표 얼굴 등록(Rekognition `IndexFaces`), 참조 얼굴 추가, 삭제.
 - **작품(Works)**: 작품 생성, 스틸 다중 업로드 → 얼굴 검출(`DetectFaces`) → 얼굴별
   crop 후 컬렉션 검색(`SearchFacesByImage`) → 출연 인물 자동 색인.
+- **TMDB 임포트(Import)**: 영화 1편을 검색·선택하면 **작품 + 출연진 얼굴이 자동 등록**된다.
+  출연진 수에 제한이 없어 동기 처리로는 API Gateway 29초 제한에 걸리므로, **SQS + 워커
+  Lambda**로 비동기 팬아웃하고 프론트는 진행률을 폴링한다(작품 기준 임포트).
 - **공동 출연(Match)**: 인물 2명 이상 선택 → 함께 출연한 작품을 **집합 교집합**으로 조회.
 - **사진 식별(Identify)**: 얼굴 사진 한 장으로 등록 인물 중 누구인지 식별.
 - **접근 제어 / 쿼터**: HMAC 패스코드 로그인 + 계정·사이트 단위 일일 "얼굴 연산" 한도
@@ -36,7 +39,10 @@ Rekognition)로 구성되어, 트래픽이 0이면 비용도 0으로 스케일�
                     ▼                      ▼                        ▼
                 DynamoDB              S3 (원본 이미지)         Rekognition
            (단일 테이블: 인물·        persons/… works/…        Collection
-            작품·출연·쿼터)           presigned GET 서빙       (IndexFaces 등)
+            작품·출연·쿼터·작업)      presigned GET 서빙       (IndexFaces 등)
+
+   TMDB 임포트:  API(작업 등록) ─▶ SQS ─▶ 워커 Lambda (출연진 전체 등록, 최대 15분)
+                                            └▶ JOB# 진행률 갱신 ◀─ 프론트 폴링
 ```
 
 - **API와 정적 프론트가 같은 도메인** → CORS 불필요.
@@ -61,6 +67,7 @@ Rekognition)로 구성되어, 트래픽이 0이면 비용도 0으로 스케일�
 | 검증 | Pydantic v2 + pydantic-settings |
 | 얼굴 엔진 | AWS Rekognition Collections (`boto3`) |
 | 컴퓨트 | AWS Lambda (컨테이너 이미지) + API Gateway (HTTP API) |
+| 비동기 | SQS + 워커 Lambda (작품 임포트 팬아웃) + TMDB API |
 | DB | DynamoDB (단일 테이블) |
 | 이미지 | S3 (비공개, presigned GET) |
 | 프론트 | Vue 3 + Vite → S3 + CloudFront |
@@ -87,6 +94,7 @@ Rekognition)로 구성되어, 트래픽이 0이면 비용도 0으로 스케일�
 | 출연(인물 기준) | `ACCT#{acct}` | `APPEAR#P#{person_id}#W#{work_id}` |
 | 출연(작품 기준) | `ACCT#{acct}` | `APPEAR#W#{work_id}#P#{person_id}` |
 | 쿼터 | `QUOTA#{YYYY-MM-DD}` | `ACCT#{acct}` 또는 `SITE` (TTL) |
+| 임포트 작업 | `ACCT#{acct}` | `JOB#{job_id}` (진행률·상태, TTL) |
 
 > **공동 출연**은 SQL `JOIN`/`HAVING COUNT` 대신 *person별 조회 후 Python set 교집합*으로
 > 동일한 결과를 얻는다(데모 규모라 N이 작다).
@@ -153,6 +161,7 @@ aws cloudformation deploy \
 | `AWS_DEPLOY_ROLE_ARN` | 위 출력 역할 ARN |
 | `ACCESS_CODES` | `"패스코드:계정,..."` (예: `demo1234:guest`) |
 | `AUTH_SECRET` | 토큰 서명용 임의 문자열 |
+| `TMDB_API_KEY` | (선택) TMDB v3 API 키 — 작품 임포트 기능용. 없으면 임포트 비활성 |
 
 **2) 배포 — `main` 푸시 시 자동**
 

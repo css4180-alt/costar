@@ -73,7 +73,8 @@ jobs:
             --resolve-image-repos --resolve-s3 \
             --parameter-overrides \
               AccessCodes="${{ secrets.ACCESS_CODES }}" \
-              AuthSecret="${{ secrets.AUTH_SECRET }}"
+              AuthSecret="${{ secrets.AUTH_SECRET }}" \
+              TmdbApiKey="${{ secrets.TMDB_API_KEY }}"
 
       - name: 스택 출력 읽기
         id: stack

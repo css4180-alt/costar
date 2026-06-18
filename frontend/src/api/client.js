@@ -211,3 +211,30 @@ export async function identify(file) {
     '식별 실패',
   )
 }
+
+// ---- TMDB 임포트 ----
+
+/** 제목으로 TMDB 영화를 검색한다. */
+export async function tmdbSearch(query) {
+  return parse(
+    await fetchRetry(`${BASE}/tmdb/search?query=${encodeURIComponent(query)}`),
+    'TMDB 검색 실패',
+  )
+}
+
+/** 영화 1편 임포트를 시작한다. job 객체(진행 폴링용)를 반환한다. */
+export async function importWork(tmdbMovieId) {
+  return parse(
+    await fetchRetry(`${BASE}/works/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tmdb_movie_id: tmdbMovieId }),
+    }),
+    '임포트 시작 실패',
+  )
+}
+
+/** 임포트 작업 진행 상태를 조회한다. */
+export async function getImportJob(jobId) {
+  return parse(await fetchRetry(`${BASE}/imports/${jobId}`), '임포트 상태 조회 실패')
+}

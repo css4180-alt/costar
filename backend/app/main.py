@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api import auth, match, persons, works
+from app.api import auth, imports, match, persons, works
 from app.config import settings
 from app.core.rekognition import ensure_collection
 
@@ -53,6 +53,7 @@ app.include_router(auth.router)
 app.include_router(persons.router)
 app.include_router(works.router)
 app.include_router(match.router)
+app.include_router(imports.router)
 
 
 @app.get("/api/health", tags=["health"])
