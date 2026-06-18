@@ -41,8 +41,10 @@ CoStar는 **풀 서버리스**(AWS Lambda + DynamoDB + S3 + CloudFront + Rekogni
 - **API와 정적 프론트가 같은 도메인** → CORS 불필요.
 - **이미지 버킷은 완전 비공개.** API가 presigned GET URL을 발급해 프론트가 표시한다
   (생체정보 보호 — 공개 버킷 금지).
-- API는 **Lambda Function URL(AuthType=AWS_IAM)** 로만 노출되고, CloudFront **OAC**가
-  sigv4로 서명한 요청만 통과한다(직접 호출 불가).
+- API는 **Lambda Function URL**로 노출되며, CloudFront가 origin 요청에 주입하는
+  **비밀 헤더(`X-Origin-Verify`)** 를 Lambda 미들웨어가 검증해 직접 호출을 차단한다.
+  (OAC sigv4 방식은 브라우저 POST 본문의 사전 서명을 요구해 SPA에 부적합하므로,
+  본문 있는 모든 메서드가 동작하는 비밀 헤더 게이트를 택했다. 정적 S3 origin은 OAC 사용.)
 
 ---
 

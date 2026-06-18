@@ -56,3 +56,19 @@ def test_login_with_auth(client, monkeypatch):
 
     resp = client.post("/api/auth/login", json={"passcode": "wrong"})
     assert resp.status_code == 401
+
+
+def test_origin_verify_blocks_without_header(client, monkeypatch):
+    """origin_verify_secret 설정 시 X-Origin-Verify 헤더가 없으면 403."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "origin_verify_secret", "cf-secret")
+
+    # 헤더 없음 → 차단
+    assert client.get("/api/health").status_code == 403
+    # 틀린 값 → 차단
+    bad = client.get("/api/health", headers={"X-Origin-Verify": "nope"})
+    assert bad.status_code == 403
+    # 올바른 값 → 통과
+    ok = client.get("/api/health", headers={"X-Origin-Verify": "cf-secret"})
+    assert ok.status_code == 200

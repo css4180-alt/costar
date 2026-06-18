@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # "패스코드:계정,패스코드:계정" 형식. 비워두면 인증/쿼터 비활성(로컬 개발).
     access_codes: str = ""
     auth_secret: str = "dev-insecure-secret-change-me"
+    # CloudFront가 origin 요청에 주입하는 비밀 헤더(X-Origin-Verify) 값.
+    # 설정되면(비어있지 않으면) 해당 헤더가 일치하는 요청만 통과시킨다.
+    # 로컬 개발에서는 비워두어 검증을 끈다(uvicorn 직접 접근).
+    origin_verify_secret: str = ""
     daily_faces_per_account: int = 500
     site_daily_faces_limit: int = 3000
     token_ttl_hours: int = 24

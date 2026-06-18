@@ -120,6 +120,9 @@ Resources:
           PRESIGN_TTL_SECONDS: !Ref PresignTtlSeconds
           ACCESS_CODES: !Ref AccessCodes
           AUTH_SECRET: !Ref AuthSecret
+          # CloudFront origin이 주입하는 비밀 헤더 값(직접 호출 차단용).
+          # AuthSecret을 재사용해 추가 시크릿 없이 게이트한다.
+          ORIGIN_VERIFY_SECRET: !Ref AuthSecret
           DAILY_FACES_PER_ACCOUNT: !Ref DailyFacesPerAccount
           SITE_DAILY_FACES_LIMIT: !Ref SiteDailyFacesLimit
           TOKEN_TTL_HOURS: !Ref TokenTtlHours
@@ -144,24 +147,25 @@ Resources:
       Dockerfile: Dockerfile
       DockerTag: latest
 
-  # Function URL: IAM 인증 — CloudFront OAC(sigv4)만 호출 가능, 공개 노출 없음.
+  # Function URL: AuthType=NONE. 직접 호출은 CloudFront origin이 주입하는
+  # 비밀 헤더(X-Origin-Verify)를 Lambda가 검증해 차단한다. OAC sigv4는
+  # 브라우저 POST 본문 서명을 요구해 SPA에 부적합하므로 사용하지 않는다.
   ApiFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
       TargetFunctionArn: !Ref ApiFunction
-      AuthType: AWS_IAM
+      AuthType: NONE
 
-  # CloudFront 배포가 Function URL을 호출하도록 허용(SourceArn으로 배포 한정).
+  # AuthType=NONE Function URL의 공개 호출 권한(보호는 비밀 헤더가 담당).
   ApiFunctionUrlPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ApiFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: cloudfront.amazonaws.com
-      FunctionUrlAuthType: AWS_IAM
-      SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+      Principal: '*'
+      FunctionUrlAuthType: NONE
 
-  # ── CloudFront OAC(Origin Access Control) ────────────────────────────────
+  # ── CloudFront OAC(정적 S3 전용) ─────────────────────────────────────────
   SiteOac:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -170,34 +174,6 @@ Resources:
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
-
-  ApiOac:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub costar-api-oac-${AWS::StackName}
-        OriginAccessControlOriginType: lambda
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-  # /api/* 원본 요청 정책: Host·Authorization을 제외한 모든 뷰어 헤더를 전달.
-  # - Host 제외: Function URL이 자신의 도메인을 Host로 받아야 한다.
-  # - Authorization 제외: OAC가 sigv4 서명을 이 헤더에 넣으므로 비워둬야 한다.
-  #   (앱 토큰은 X-Costar-Token 커스텀 헤더로 전달되어 그대로 통과한다.)
-  ApiOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Properties:
-      OriginRequestPolicyConfig:
-        Name: !Sub costar-api-orp-${AWS::StackName}
-        HeadersConfig:
-          HeaderBehavior: allExcept
-          Headers:
-            - host
-            - authorization
-        CookiesConfig:
-          CookieBehavior: all
-        QueryStringsConfig:
-          QueryStringBehavior: all
 
   # ── CloudFront 단일 배포: "/*"→정적 S3, "/api/*"→Lambda Function URL ──────
   Distribution:
@@ -217,7 +193,10 @@ Resources:
               OriginAccessIdentity: ''
           - Id: api-lambda
             DomainName: !Select [2, !Split ['/', !GetAtt ApiFunctionUrl.FunctionUrl]]
-            OriginAccessControlId: !Ref ApiOac
+            # 직접 호출 차단용 비밀 헤더(Lambda 미들웨어가 검증).
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !Ref AuthSecret
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols:
@@ -234,9 +213,10 @@ Resources:
             ViewerProtocolPolicy: redirect-to-https
             Compress: true
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
-            # CachingDisabled(관리형) + 커스텀 원본 요청 정책(Host·Authorization 제외)
+            # CachingDisabled + AllViewerExceptHostHeader(관리형).
+            # Host만 제외하고 전 헤더 전달(Function URL은 자기 도메인을 Host로 받아야 함).
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
 
   # SiteBucket은 이 배포(OAC)에서만 GetObject 허용.
   SiteBucketPolicy:
