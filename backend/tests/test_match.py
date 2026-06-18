@@ -134,6 +134,57 @@ def test_identify_no_match(client):
     assert resp.json()["matched"] is None
 
 
+def test_analyze_identifies_faces_and_common_works(client):
+    """사진 분석: 여러 얼굴 식별 + 식별된 인물들의 공통 출연작."""
+    alice = _create_person(client, "Alice")
+    bob = _create_person(client, "Bob")
+    w1 = _create_work(client, "Together")
+    w2 = _create_work(client, "Also Together")
+    _add_still(client, w1, [alice, bob])
+    _add_still(client, w2, [alice, bob])
+
+    boxes = [
+        {"BoundingBox": {"Left": 0.1, "Top": 0.1, "Width": 0.3, "Height": 0.3}, "Confidence": 99.0},
+        {"BoundingBox": {"Left": 0.5, "Top": 0.1, "Width": 0.3, "Height": 0.3}, "Confidence": 99.0},
+    ]
+    searches = [
+        [{"Face": {"ExternalImageId": alice}, "Similarity": 99.0}],
+        [{"Face": {"ExternalImageId": bob}, "Similarity": 98.0}],
+    ]
+    with patch("app.core.rekognition.detect_faces_bytes", return_value=boxes), patch(
+        "app.core.rekognition.search_faces_by_image_bytes", side_effect=searches
+    ):
+        resp = client.post(
+            "/api/match/analyze",
+            files={"file": ("group.jpg", io.BytesIO(_image_bytes("JPEG")), "image/jpeg")},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["detected"]) == 2
+    names = {d["name"] for d in data["detected"]}
+    assert names == {"Alice", "Bob"}
+    assert all(d["box"]["width"] > 0 for d in data["detected"])
+    titles = sorted(w["title"] for w in data["common_works"])
+    assert titles == ["Also Together", "Together"]
+
+
+def test_analyze_unidentified_face(client):
+    """매칭되지 않는 얼굴은 person_id=None으로, 공통작은 비어 있다."""
+    boxes = [{"BoundingBox": _full_face_box(), "Confidence": 99.0}]
+    with patch("app.core.rekognition.detect_faces_bytes", return_value=boxes), patch(
+        "app.core.rekognition.search_faces_by_image_bytes", return_value=[]
+    ):
+        resp = client.post(
+            "/api/match/analyze",
+            files={"file": ("q.jpg", io.BytesIO(_image_bytes("JPEG")), "image/jpeg")},
+        )
+    data = resp.json()
+    assert len(data["detected"]) == 1
+    assert data["detected"][0]["person_id"] is None
+    assert data["common_works"] == []
+
+
 def test_delete_person_cleans_appearances(client):
     """인물을 삭제하면 그 인물의 출연 정보가 작품 상세에서도 사라진다."""
     alice = _create_person(client, "Alice")

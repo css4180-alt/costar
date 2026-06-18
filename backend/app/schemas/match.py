@@ -27,3 +27,22 @@ class IdentifiedPerson(BaseModel):
 class IdentifyResponse(BaseModel):
     matched: IdentifiedPerson | None = None
     similarity: float | None = None
+
+
+class BoundingBox(BaseModel):
+    left: float
+    top: float
+    width: float
+    height: float
+
+
+class DetectedFace(BaseModel):
+    box: BoundingBox
+    person_id: str | None = None
+    name: str | None = None
+    similarity: float | None = None
+
+
+class AnalyzeResponse(BaseModel):
+    detected: list[DetectedFace] = []
+    common_works: list[CommonWorkResponse] = []

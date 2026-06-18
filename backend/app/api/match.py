@@ -6,7 +6,12 @@ from fastapi import APIRouter, File, UploadFile
 
 from app.core import matcher
 from app.core.auth import AccountDep
-from app.schemas.match import IdentifyResponse, MatchRequest, MatchResponse
+from app.schemas.match import (
+    AnalyzeResponse,
+    IdentifyResponse,
+    MatchRequest,
+    MatchResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["match"])
@@ -17,6 +22,16 @@ def common(request: MatchRequest, account: str = AccountDep) -> MatchResponse:
     """선택된 인물들이 함께 출연한 작품을 반환한다."""
     works = matcher.common_works(account, request.person_ids)
     return MatchResponse(works=works)
+
+
+@router.post("/match/analyze", response_model=AnalyzeResponse)
+async def analyze(
+    file: UploadFile = File(...),
+    account: str = AccountDep,
+) -> AnalyzeResponse:
+    """사진에서 여러 얼굴을 식별하고 공통 출연 작품을 함께 반환한다."""
+    image_bytes = await file.read()
+    return AnalyzeResponse(**matcher.analyze(account, image_bytes))
 
 
 @router.post("/identify", response_model=IdentifyResponse)

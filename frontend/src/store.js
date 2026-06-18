@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 import {
   addFace,
   addStills,
+  analyzeMatch,
   commonWorks,
   createPerson,
   createWork,
@@ -194,6 +195,12 @@ export const store = reactive({
 
   async identifyPhoto(file) {
     const result = await identify(file)
+    await this.refreshQuota()
+    return result
+  },
+
+  async analyzePhoto(file) {
+    const result = await analyzeMatch(file)
     await this.refreshQuota()
     return result
   },

@@ -98,6 +98,23 @@ def detect_faces(bucket: str, s3_key: str) -> list[dict]:
     return filtered
 
 
+def detect_faces_bytes(image_bytes: bytes) -> list[dict]:
+    """이미지 바이트에서 얼굴 BoundingBox 목록을 반환한다(S3 미저장 분석용)."""
+    client = get_client()
+    try:
+        response = client.detect_faces(
+            Image={"Bytes": image_bytes},
+            Attributes=["DEFAULT"],
+        )
+    except ClientError:
+        logger.exception("detect_faces_bytes failed")
+        raise
+    faces = response.get("FaceDetails", [])
+    filtered = [f for f in faces if f.get("Confidence", 0) >= settings.detect_min_confidence]
+    logger.info("detect_faces_bytes: %d face(s) found", len(filtered))
+    return filtered
+
+
 def delete_faces(face_ids: list[str], collection_id: str | None = None) -> list[str]:
     """컬렉션에서 얼굴을 삭제하고 삭제된 FaceId 목록을 반환한다."""
     if not face_ids:

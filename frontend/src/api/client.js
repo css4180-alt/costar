@@ -212,6 +212,16 @@ export async function identify(file) {
   )
 }
 
+/** 사진에서 여러 얼굴을 식별하고 공통 출연작을 함께 조회한다. */
+export async function analyzeMatch(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return parse(
+    await fetchRetry(`${BASE}/match/analyze`, { method: 'POST', body: form }),
+    '이미지 분석 실패',
+  )
+}
+
 // ---- TMDB 임포트 ----
 
 /** 제목으로 TMDB 영화를 검색한다. */
