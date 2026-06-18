@@ -82,6 +82,7 @@ Resources:
                   - lambda:*
                   - dynamodb:*
                   - cloudfront:*
+                  - apigateway:*
                 Resource: '*'
               - Sid: Storage
                 Effect: Allow
