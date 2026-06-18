@@ -3,7 +3,6 @@ import {
   addFace,
   addStills,
   analyzeMatch,
-  commonWorks,
   createPerson,
   createWork,
   deletePerson,
@@ -149,8 +148,8 @@ export const store = reactive({
     this.works = await listWorks()
   },
 
-  async addWork(title, year) {
-    const work = await createWork(title, year)
+  async addWork(title, year, file = null) {
+    const work = await createWork(title, year, file)
     await this.loadWorks()
     return work
   },
@@ -189,10 +188,6 @@ export const store = reactive({
   },
 
   // ---- 매칭 ----
-  async findCommon(personIds) {
-    return commonWorks(personIds)
-  },
-
   async identifyPhoto(file) {
     const result = await identify(file)
     await this.refreshQuota()

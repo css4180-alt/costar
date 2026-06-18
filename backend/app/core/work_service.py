@@ -54,12 +54,14 @@ def _now_iso() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _work_view(item: dict, *, rep_key: str | None = None) -> dict:
+    # 전용 포스터가 있으면 우선 사용하고, 없으면 첫 스틸을 대표 이미지로 쓴다.
+    image_key = item.get("poster_key") or rep_key
     return {
         "id": item["SK"].split("#", 1)[1],
         "title": item.get("title", ""),
         "year": item.get("year"),
         "created_at": item.get("created_at"),
-        "rep_url": s3.generate_presigned_get(rep_key) if rep_key else None,
+        "rep_url": s3.generate_presigned_get(image_key) if image_key else None,
     }
 
 
@@ -77,7 +79,13 @@ def _still_view(item: dict) -> dict:
 # 작품 CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
-def create_work(account: str, title: str, year: int | None = None) -> dict:
+def create_work(
+    account: str,
+    title: str,
+    year: int | None = None,
+    poster_bytes: bytes | None = None,
+    poster_content_type: str | None = None,
+) -> dict:
     title = title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="작품 제목을 입력해 주세요.")
@@ -91,6 +99,14 @@ def create_work(account: str, title: str, year: int | None = None) -> dict:
     }
     if year is not None:
         item["year"] = year
+
+    # 포스터가 주어지면 S3에 올리고 키를 저장한다(얼굴 인덱싱 대상 아님).
+    if poster_bytes:
+        ext = _EXT_BY_CONTENT_TYPE.get(poster_content_type or "", "jpg")
+        poster_key = f"works/{account}/{work_id}/poster.{ext}"
+        s3.put_object(poster_key, poster_bytes, content_type=poster_content_type or "image/jpeg")
+        item["poster_key"] = poster_key
+
     dynamo.put_item(item)
     logger.info("work created: account=%s work_id=%s", account, work_id)
     return _work_view(item)
@@ -141,12 +157,14 @@ def get_work(account: str, work_id: str) -> dict:
 
 
 def delete_work(account: str, work_id: str) -> None:
-    """작품 삭제 캐스케이드: STILL# S3·DDB + APPEAR#(양방향) + WORK# 삭제."""
-    _get_work_item(account, work_id)
+    """작품 삭제 캐스케이드: 포스터·STILL# S3·DDB + APPEAR#(양방향) + WORK# 삭제."""
+    work_item = _get_work_item(account, work_id)
     still_items = dynamo.query_pk_sk_prefix(_pk(account), f"STILL#{work_id}#")
     appear_items = dynamo.query_pk_sk_prefix(_pk(account), f"APPEAR#W#{work_id}#")
 
     image_keys = [s["image_key"] for s in still_items if s.get("image_key")]
+    if work_item.get("poster_key"):
+        image_keys.append(work_item["poster_key"])
     if image_keys:
         s3.delete_objects(image_keys)
 
@@ -242,7 +260,7 @@ def _index_one_still(account: str, work_id: str, image_bytes: bytes, content_typ
         box = face.get("BoundingBox")
         if not box:
             continue
-        crop = image_utils.crop_face(image_bytes, box)
+        crop = image_utils.crop_face(image_bytes, box, margin=0.25)
         # 2) crop별 컬렉션 검색
         matches = rekognition.search_faces_by_image_bytes(crop)
         if not matches:

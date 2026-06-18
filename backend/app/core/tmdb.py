@@ -71,9 +71,29 @@ def get_cast(movie_id: int) -> list[dict]:
     return cast
 
 
+def get_person_profiles(person_id: int, limit: int = 2) -> list[str]:
+    """배우의 프로필 이미지 경로를 여러 개 반환한다(최대 limit개).
+
+    참조 얼굴을 여러 장 인덱싱하면 각도·표정 차이에 강해진다.
+    """
+    data = _get(f"/person/{person_id}/images")
+    paths = [
+        p["file_path"] for p in (data.get("profiles") or []) if p.get("file_path")
+    ]
+    return paths[:limit]
+
+
 def download_profile(profile_path: str) -> tuple[bytes, str]:
     """프로필 이미지를 내려받아 (바이트, content-type)을 반환한다."""
     resp = requests.get(f"{TMDB_IMG}{profile_path}", timeout=30)
+    resp.raise_for_status()
+    content_type = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    return resp.content, content_type
+
+
+def download_image(url: str) -> tuple[bytes, str]:
+    """전체 이미지 URL(포스터 등)을 내려받아 (바이트, content-type)을 반환한다."""
+    resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     content_type = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
     return resp.content, content_type

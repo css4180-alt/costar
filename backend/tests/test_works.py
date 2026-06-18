@@ -73,6 +73,20 @@ def test_get_work_not_found(client):
     assert resp.status_code == 404
 
 
+def test_create_work_with_poster(client, s3_bucket):
+    resp = client.post(
+        "/api/works",
+        data={"title": "Poster Movie", "year": 2020},
+        files={"file": ("poster.jpg", io.BytesIO(_image_bytes("JPEG")), "image/jpeg")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["rep_url"]  # 포스터 presigned URL이 채워진다
+
+    s3 = boto3.client("s3", region_name="us-east-1")
+    keys = [o["Key"] for o in s3.list_objects_v2(Bucket=s3_bucket).get("Contents", [])]
+    assert any("poster" in k for k in keys)
+
+
 def test_add_stills_with_match(client, s3_bucket):
     person_id = _create_person(client, "Keanu")
     work_id = client.post("/api/works", data={"title": "John Wick"}).json()["id"]

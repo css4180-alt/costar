@@ -23,13 +23,16 @@ def list_works(account: str = AccountDep) -> list[WorkResponse]:
 
 
 @router.post("", response_model=WorkResponse, status_code=201)
-def create_work(
+async def create_work(
     title: str = Form(...),
     year: int | None = Form(None),
+    file: UploadFile | None = File(None),
     account: str = AccountDep,
 ) -> WorkResponse:
-    """작품을 생성한다."""
-    return work_service.create_work(account, title, year)
+    """작품을 생성한다(선택: 포스터 이미지)."""
+    poster_bytes = await file.read() if file is not None else None
+    poster_content_type = file.content_type if file is not None else None
+    return work_service.create_work(account, title, year, poster_bytes, poster_content_type)
 
 
 @router.get("/{work_id}", response_model=WorkDetailResponse)

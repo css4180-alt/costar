@@ -10,15 +10,24 @@
     </div>
 
     <div class="register">
-      <input v-model="title" class="field" placeholder="작품 제목 (예: 기생충)" :disabled="busy" />
-      <input
-        v-model="year"
-        class="field year"
-        type="number"
-        placeholder="개봉연도"
-        :disabled="busy"
-      />
-      <button class="btn" :disabled="busy || !title.trim()" @click="onCreate">작품 추가</button>
+      <label class="poster-pick" :class="{ has: posterPreview }" title="포스터 선택(선택사항)">
+        <input type="file" accept="image/jpeg,image/png" hidden :disabled="busy" @change="onPosterPick" />
+        <img v-if="posterPreview" :src="posterPreview" alt="포스터 미리보기" />
+        <span v-else class="poster-ph">＋<br />포스터</span>
+      </label>
+      <div class="register-fields">
+        <input v-model="title" class="field" placeholder="작품 제목 (예: 기생충)" :disabled="busy" />
+        <div class="register-row2">
+          <input
+            v-model="year"
+            class="field year"
+            type="number"
+            placeholder="개봉연도"
+            :disabled="busy"
+          />
+          <button class="btn" :disabled="busy || !title.trim()" @click="onCreate">작품 추가</button>
+        </div>
+      </div>
     </div>
 
     <div class="list-head">
@@ -180,6 +189,8 @@ const year = ref('')
 const busy = ref(false)
 const detail = ref(null)
 const stillBusy = ref(false)
+const posterFile = ref(null)
+const posterPreview = ref(null)
 
 // ---- TMDB 임포트 ----
 const importOpen = ref(false)
@@ -258,14 +269,29 @@ async function pollJob() {
   }, 2000)
 }
 
+function onPosterPick(e) {
+  const f = e.target.files?.[0]
+  if (!f) return
+  if (posterPreview.value) URL.revokeObjectURL(posterPreview.value)
+  posterFile.value = f
+  posterPreview.value = URL.createObjectURL(f)
+}
+
+function clearPoster() {
+  if (posterPreview.value) URL.revokeObjectURL(posterPreview.value)
+  posterFile.value = null
+  posterPreview.value = null
+}
+
 async function onCreate() {
   const t = title.value.trim()
   if (!t) return
   busy.value = true
   try {
-    await store.addWork(t, year.value || null)
+    await store.addWork(t, year.value || null, posterFile.value)
     title.value = ''
     year.value = ''
+    clearPoster()
     store.notify(`'${t}' 작품을 추가했습니다.`, 'ok')
   } catch (err) {
     store.notify(err.message, 'error')
@@ -348,16 +374,56 @@ async function onDelete() {
 
 .register {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 14px;
+  align-items: stretch;
 }
-.register .field {
+.register-fields {
   flex: 1;
-  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.register .year {
-  flex: 0 0 130px;
+.register-fields .field {
+  width: 100%;
+}
+.register-row2 {
+  display: flex;
+  gap: 12px;
+}
+.register-row2 .year {
+  flex: 1;
   min-width: 110px;
+}
+.poster-pick {
+  flex: 0 0 92px;
+  width: 92px;
+  aspect-ratio: 2 / 3;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1.5px dashed var(--line-bright);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.16s;
+}
+.poster-pick:hover {
+  border-color: var(--gold);
+}
+.poster-pick.has {
+  border-style: solid;
+}
+.poster-pick img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.poster-ph {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink-faint);
 }
 
 .list-head {
@@ -394,7 +460,7 @@ async function onDelete() {
   box-shadow: var(--shadow-md);
 }
 .poster {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 2 / 3;
   background: var(--surface-3);
   display: grid;
   place-items: center;

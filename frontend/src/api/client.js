@@ -164,10 +164,11 @@ export async function getWork(id) {
   return parse(await fetchRetry(`${BASE}/works/${id}`), '작품 상세 조회 실패')
 }
 
-export async function createWork(title, year) {
+export async function createWork(title, year, file = null) {
   const form = new FormData()
   form.append('title', title)
   if (year != null && year !== '') form.append('year', year)
+  if (file) form.append('file', file)
   return parse(
     await fetchRetry(`${BASE}/works`, { method: 'POST', body: form }),
     '작품 생성 실패',
@@ -189,18 +190,6 @@ export async function deleteWork(id) {
 }
 
 // ---- 매칭(Match) ----
-
-/** 선택된 인물들의 공통 출연 작품 목록을 반환한다. */
-export async function commonWorks(personIds) {
-  return parse(
-    await fetchRetry(`${BASE}/match/common`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ person_ids: personIds }),
-    }),
-    '공통 출연 조회 실패',
-  )
-}
 
 /** 사진 한 장에서 등록 인물을 식별한다. */
 export async function identify(file) {

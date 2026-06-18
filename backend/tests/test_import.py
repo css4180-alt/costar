@@ -40,6 +40,7 @@ def test_import_registers_work_and_cast(import_env):
         patch("app.core.tmdb.get_movie", return_value=_MOVIE),
         patch("app.core.tmdb.get_cast", return_value=_CAST),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
+        patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
     ):
         job = import_service.start_import(account, 1)
@@ -75,6 +76,7 @@ def test_import_dedupes_existing_cast(import_env):
         patch("app.core.tmdb.get_movie", return_value=_MOVIE),
         patch("app.core.tmdb.get_cast", return_value=_CAST),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
+        patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
     ):
         import_service.start_import(account, 1)
@@ -94,6 +96,7 @@ def test_import_skips_faceless_profile(import_env):
         patch("app.core.tmdb.get_movie", return_value=_MOVIE),
         patch("app.core.tmdb.get_cast", return_value=cast),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
+        patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", return_value=[]),
     ):
         job = import_service.start_import(account, 1)
@@ -120,6 +123,7 @@ def test_import_api_endpoint(import_env, mock_ensure_collection):
         patch("app.core.tmdb.get_movie", return_value=_MOVIE),
         patch("app.core.tmdb.get_cast", return_value=_CAST[:1]),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
+        patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
         TestClient(app, raise_server_exceptions=True) as client,
     ):

@@ -79,7 +79,18 @@ def start_import(account: str, tmdb_movie_id: int) -> dict:
     """영화 임포트를 시작한다: 작품 생성 + JOB# + 워커 디스패치."""
     _require_tmdb()
     movie = tmdb.get_movie(tmdb_movie_id)
-    work = work_service.create_work(account, movie["title"], movie.get("year"))
+
+    # 포스터가 있으면 내려받아 작품 대표 이미지로 저장한다.
+    poster_bytes = poster_ct = None
+    if movie.get("poster_url"):
+        try:
+            poster_bytes, poster_ct = tmdb.download_image(movie["poster_url"])
+        except Exception:
+            logger.warning("poster download failed: %s", movie["poster_url"])
+
+    work = work_service.create_work(
+        account, movie["title"], movie.get("year"), poster_bytes, poster_ct
+    )
 
     job_id = uuid.uuid4().hex
     ttl = int(datetime.now(timezone.utc).timestamp()) + _JOB_TTL_SECONDS
@@ -125,22 +136,35 @@ def get_job(account: str, job_id: str) -> dict:
 # 워커: 실제 출연진 등록
 # ─────────────────────────────────────────────────────────────────────────────
 
+# 인물당 인덱싱할 참조 얼굴 수(많을수록 매칭에 강하지만 쿼터를 더 쓴다).
+_MAX_FACES_PER_CAST = 2
+
+
 def _register_cast_member(account: str, member: dict) -> str:
     """출연진 1명을 등록(또는 재사용)하고 person_id를 반환한다.
 
+    참조 얼굴을 최대 _MAX_FACES_PER_CAST장 인덱싱해 각도·표정 차이에 대비한다.
     반환값이 None이면 건너뛴 것(프로필 없음 / 지원 안되는 포맷 / 얼굴 미검출).
-    쿼터 초과(429)는 그대로 전파해 상위에서 작업을 중단한다.
+    인물 생성 시의 쿼터 초과(429)는 그대로 전파해 상위에서 작업을 중단한다.
     """
     tmdb_id = str(member["tmdb_id"])
     existing = face_service.find_person_id_by_tmdb_id(account, tmdb_id)
     if existing:
         return existing
 
-    profile_path = member.get("profile_path")
-    if not profile_path:
+    # 참조 얼굴 경로 모으기: cast 프로필 + 추가 프로필(중복 제거, 최대 N장).
+    paths: list[str] = []
+    if member.get("profile_path"):
+        paths.append(member["profile_path"])
+    for path in tmdb.get_person_profiles(member["tmdb_id"], limit=_MAX_FACES_PER_CAST):
+        if path not in paths:
+            paths.append(path)
+    paths = paths[:_MAX_FACES_PER_CAST]
+    if not paths:
         return None
 
-    image_bytes, content_type = tmdb.download_profile(profile_path)
+    # 첫 얼굴로 인물을 생성한다.
+    image_bytes, content_type = tmdb.download_profile(paths[0])
     try:
         person = face_service.create_person(
             account, member["name"], image_bytes, content_type, tmdb_id=tmdb_id
@@ -151,7 +175,19 @@ def _register_cast_member(account: str, member: dict) -> str:
         # 얼굴 미검출(400)·지원 안되는 포맷 등 → 건너뜀
         logger.info("cast skipped: %s (%s)", member["name"], exc.detail)
         return None
-    return person["id"]
+
+    person_id = person["id"]
+
+    # 추가 참조 얼굴을 인덱싱한다(실패·쿼터초과는 건너뜀 — 인물은 이미 1장으로 등록됨).
+    for extra in paths[1:]:
+        try:
+            extra_bytes, extra_ct = tmdb.download_profile(extra)
+            face_service.add_face(account, person_id, extra_bytes, extra_ct)
+        except HTTPException:
+            break
+        except Exception:
+            logger.warning("extra face index failed: %s", member["name"])
+    return person_id
 
 
 def process_import(account: str, job_id: str, work_id: str, tmdb_movie_id: int) -> None:
