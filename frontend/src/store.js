@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import {
+  addCast,
   addFace,
   addStills,
   analyzeMatch,
@@ -16,6 +17,8 @@ import {
   listPersons,
   listWorks,
   login,
+  removeCast,
+  resyncWork,
   setToken,
   setUnauthorizedHandler,
   setWakingHandler,
@@ -34,8 +37,10 @@ export const store = reactive({
   // 서버 콜드 스타트(깨어나는 중) 여부
   waking: false,
 
-  // 현재 탭: 'people' | 'works' | 'match'
-  tab: localStorage.getItem(TAB_KEY) || 'people',
+  // 현재 탭: 'people' | 'works' | 'match' (해시 URL과 동기화)
+  tab: 'people',
+  // 작품 상세로 진입한 작품 id (없으면 목록). URL: #/works/<id>
+  workId: null,
 
   // 데이터
   persons: [],
@@ -57,6 +62,8 @@ export const store = reactive({
       this.account = null
       this.quota = null
     })
+    window.addEventListener('popstate', () => this._applyRoute())
+    this._applyRoute()
     const me = await getMe()
     if (me) {
       this.applyAuth(me)
@@ -96,10 +103,75 @@ export const store = reactive({
     await Promise.all([this.loadPersons(), this.loadWorks()])
   },
 
+  // ---- 라우팅(해시 URL 동기화) ----
+  // 현재 URL 해시(#/people, #/works, #/works/<id>, #/match)를 읽어 상태에 반영한다.
+  _applyRoute() {
+    const raw = window.location.hash.replace(/^#\/?/, '')
+    const [seg, id] = raw.split('/')
+    const tab = ['people', 'works', 'match'].includes(seg)
+      ? seg
+      : localStorage.getItem(TAB_KEY) || 'people'
+    this.tab = tab
+    this.workId = tab === 'works' && id ? decodeURIComponent(id) : null
+    localStorage.setItem(TAB_KEY, tab)
+  },
+  // 현재 상태를 URL 해시로 밀어넣는다(뒤로가기 지원).
+  _pushRoute() {
+    const path = this.workId ? `#/works/${this.workId}` : `#/${this.tab}`
+    if (window.location.hash !== path) window.history.pushState({}, '', path)
+  },
+
   // ---- 탭 ----
   setTab(tab) {
     this.tab = tab
+    this.workId = null
     localStorage.setItem(TAB_KEY, tab)
+    this._pushRoute()
+  },
+
+  openWork(id) {
+    this.tab = 'works'
+    this.workId = id
+    this._pushRoute()
+  },
+
+  closeWork() {
+    this.workId = null
+    this._pushRoute()
+  },
+
+  // ---- 전역 로딩 오버레이 ----
+  // 느린 API 호출에만 표시한다: 300ms 안에 끝나면 깜빡이지 않고, 그보다 길면
+  // 기존 화면을 어둡게 덮고 인디케이터를 띄운다. 중첩 호출은 카운터로 처리.
+  overlay: false,
+  _busyCount: 0,
+  _busyTimer: null,
+  _beginBusy() {
+    this._busyCount += 1
+    if (this._busyCount === 1 && !this._busyTimer) {
+      this._busyTimer = setTimeout(() => {
+        this.overlay = true
+        this._busyTimer = null
+      }, 300)
+    }
+  },
+  _endBusy() {
+    this._busyCount = Math.max(0, this._busyCount - 1)
+    if (this._busyCount === 0) {
+      if (this._busyTimer) {
+        clearTimeout(this._busyTimer)
+        this._busyTimer = null
+      }
+      this.overlay = false
+    }
+  },
+  async withOverlay(fn) {
+    this._beginBusy()
+    try {
+      return await fn()
+    } finally {
+      this._endBusy()
+    }
   },
 
   // ---- 미리보기 ----
@@ -125,17 +197,21 @@ export const store = reactive({
   },
 
   async addPerson(name, file) {
-    await createPerson(name, file)
-    await Promise.all([this.loadPersons(), this.refreshQuota()])
+    await this.withOverlay(async () => {
+      await createPerson(name, file)
+      await Promise.all([this.loadPersons(), this.refreshQuota()])
+    })
   },
 
   async addPersonFace(personId, file) {
-    await addFace(personId, file)
-    await Promise.all([this.loadPersons(), this.refreshQuota()])
+    await this.withOverlay(async () => {
+      await addFace(personId, file)
+      await Promise.all([this.loadPersons(), this.refreshQuota()])
+    })
   },
 
   getPersonDetail(id) {
-    return getPerson(id)
+    return this.withOverlay(() => getPerson(id))
   },
 
   async removePerson(id) {
@@ -155,13 +231,15 @@ export const store = reactive({
   },
 
   async uploadStills(workId, files) {
-    const result = await addStills(workId, files)
-    await Promise.all([this.loadWorks(), this.refreshQuota()])
-    return result
+    return this.withOverlay(async () => {
+      const result = await addStills(workId, files)
+      await Promise.all([this.loadWorks(), this.refreshQuota()])
+      return result
+    })
   },
 
   getWorkDetail(id) {
-    return getWork(id)
+    return this.withOverlay(() => getWork(id))
   },
 
   async removeWork(id) {
@@ -170,16 +248,29 @@ export const store = reactive({
   },
 
   // ---- TMDB 임포트 ----
-  async searchTmdb(query) {
-    return tmdbSearch(query)
+  async searchTmdb(query, mediaType = 'movie') {
+    return tmdbSearch(query, mediaType)
   },
 
-  async startImport(tmdbMovieId) {
-    return importWork(tmdbMovieId)
+  async startImport(mediaType, tmdbId) {
+    return importWork(mediaType, tmdbId)
+  },
+
+  async resyncWork(workId) {
+    return resyncWork(workId)
   },
 
   async pollImport(jobId) {
     return getImportJob(jobId)
+  },
+
+  // ---- 출연진 관리 ----
+  async addCast(workId, personId) {
+    return this.withOverlay(() => addCast(workId, personId))
+  },
+
+  async removeCast(workId, personId) {
+    return this.withOverlay(() => removeCast(workId, personId))
   },
 
   // 임포트 완료 후 작품·인물·쿼터를 새로고침한다.

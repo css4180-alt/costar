@@ -189,6 +189,34 @@ export async function deleteWork(id) {
   if (!res.ok) throw new Error('작품 삭제 실패')
 }
 
+/** 작품 출연진을 TMDB에서 다시 동기화한다. job 객체를 반환한다. */
+export async function resyncWork(id) {
+  return parse(
+    await fetchRetry(`${BASE}/works/${id}/resync`, { method: 'POST' }),
+    'TMDB 동기화 실패',
+  )
+}
+
+/** 등록된 인물을 작품 출연진으로 추가한다. */
+export async function addCast(workId, personId) {
+  return parse(
+    await fetchRetry(`${BASE}/works/${workId}/cast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: personId }),
+    }),
+    '출연진 추가 실패',
+  )
+}
+
+/** 작품에서 특정 인물의 출연을 제거한다. */
+export async function removeCast(workId, personId) {
+  const res = await fetchRetry(`${BASE}/works/${workId}/cast/${personId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error('출연진 제거 실패')
+}
+
 // ---- 매칭(Match) ----
 
 /** 사진 한 장에서 등록 인물을 식별한다. */
@@ -213,21 +241,19 @@ export async function analyzeMatch(file) {
 
 // ---- TMDB 임포트 ----
 
-/** 제목으로 TMDB 영화를 검색한다. */
-export async function tmdbSearch(query) {
-  return parse(
-    await fetchRetry(`${BASE}/tmdb/search?query=${encodeURIComponent(query)}`),
-    'TMDB 검색 실패',
-  )
+/** 제목으로 TMDB 영화/TV를 검색한다. */
+export async function tmdbSearch(query, mediaType = 'movie') {
+  const qs = `query=${encodeURIComponent(query)}&media_type=${mediaType}`
+  return parse(await fetchRetry(`${BASE}/tmdb/search?${qs}`), 'TMDB 검색 실패')
 }
 
-/** 영화 1편 임포트를 시작한다. job 객체(진행 폴링용)를 반환한다. */
-export async function importWork(tmdbMovieId) {
+/** 영화/TV 1편 임포트를 시작한다. job 객체(진행 폴링용)를 반환한다. */
+export async function importWork(mediaType, tmdbId) {
   return parse(
     await fetchRetry(`${BASE}/works/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tmdb_movie_id: tmdbMovieId }),
+      body: JSON.stringify({ media_type: mediaType, tmdb_id: tmdbId }),
     }),
     '임포트 시작 실패',
   )
