@@ -184,14 +184,23 @@ def _get_person_item(account: str, person_id: str) -> dict:
 
 
 def get_person(account: str, person_id: str) -> dict:
-    """인물 상세(대표 사진 + 등록된 얼굴 목록)를 반환한다.
+    """인물 상세(대표 사진 + 등록된 얼굴 목록 + 출연 작품)를 반환한다."""
+    from app.core import work_service  # 순환 임포트 방지(work_service가 face_service를 참조)
 
-    출연 작품(appearances)은 Step 3에서 추가된다.
-    """
     person_item = _get_person_item(account, person_id)
     face_items = dynamo.query_pk_sk_prefix(_pk(account), f"FACE#{person_id}#")
+    appear_items = dynamo.query_pk_sk_prefix(_pk(account), f"APPEAR#P#{person_id}#")
+
+    works = []
+    for ap in appear_items:
+        work_id = ap["SK"].split("#W#", 1)[1]
+        work_item = dynamo.get_item(_pk(account), f"WORK#{work_id}")
+        if work_item is not None:
+            works.append(work_service._work_view(work_item))
+
     view = _person_view(person_item)
     view["faces"] = [_face_view(f) for f in face_items]
+    view["works"] = works
     return view
 
 

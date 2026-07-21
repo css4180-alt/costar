@@ -78,6 +78,24 @@
             </button>
           </div>
 
+          <div v-if="detail.works?.length" class="works-section">
+            <p class="block-label">출연 작품 <span class="count">{{ detail.works.length }}</span></p>
+            <div class="work-list">
+              <button
+                v-for="w in detail.works"
+                :key="w.id"
+                class="work-item"
+                @click="store.openWork(w.id)"
+              >
+                <span class="work-poster">
+                  <img v-if="w.rep_url" :src="w.rep_url" :alt="w.title" />
+                  <span v-else class="ph">🎬</span>
+                </span>
+                <span class="work-title">{{ w.title }}</span>
+              </button>
+            </div>
+          </div>
+
           <DropZone
             :busy="faceBusy"
             label="참조 얼굴 추가"
@@ -381,6 +399,61 @@ async function onDelete() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.works-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.block-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.block-label .count {
+  color: var(--gold);
+}
+.work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.work-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.work-item:hover {
+  border-color: var(--gold);
+}
+.work-poster {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 44px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-3);
+  display: grid;
+  place-items: center;
+}
+.work-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.work-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--ink);
 }
 .sheet-foot {
   display: flex;

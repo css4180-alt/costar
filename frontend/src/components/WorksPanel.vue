@@ -3,17 +3,13 @@
     <!-- ─────────── 목록 뷰 (상세 로딩 중에도 그대로 유지, 전역 오버레이가 덮음) ─────────── -->
     <template v-if="!detail">
       <div class="head">
-        <div>
-          <p class="eyebrow">Works</p>
-          <h2 class="title">작품 관리</h2>
-        </div>
+        <h2 class="title">작품 관리</h2>
+        <input v-model="search" class="field search" placeholder="검색" />
         <div class="head-actions">
           <button class="btn btn-ghost" @click="openImport">＋ TMDB 임포트</button>
           <button class="btn" @click="openCreate">＋ 작품 등록</button>
         </div>
       </div>
-
-      <input v-model="search" class="field search" placeholder="작품 제목 검색" />
 
       <div class="filter-row">
         <div class="seg">
@@ -41,17 +37,18 @@
       </div>
 
       <div v-if="filteredWorks.length" class="grid">
-        <article v-for="w in filteredWorks" :key="w.id" class="card" @click="openDetail(w)">
-          <div class="poster">
+        <article v-for="w in filteredWorks" :key="w.id" class="card">
+          <div class="poster" @click="openDetail(w)">
             <img v-if="w.rep_url" :src="w.rep_url" :alt="w.title" />
             <span v-else class="ph">🎬</span>
             <span v-if="w.media_type" class="type-badge">{{ typeLabel(w.media_type) }}</span>
           </div>
-          <div class="meta">
+          <div class="meta" @click="openDetail(w)">
             <span class="name">{{ w.title }}</span>
-            <span class="year">{{ w.year || '연도 미상' }}</span>
+            <span class="tmdb-line">TMDB: {{ w.tmdb_id || '—' }}</span>
             <span class="status" :class="statusClass(w)">{{ statusLabel(w) }}</span>
           </div>
+          <button class="card-delete" @click.stop="onQuickDelete(w)">삭제</button>
         </article>
       </div>
       <p v-else class="empty">조건에 맞는 작품이 없습니다. 위에서 작품을 등록하거나 TMDB에서 임포트하세요.</p>
@@ -291,7 +288,7 @@ const statusOptions = [
   { id: 'all', label: '전체 상태' },
   { id: 'done', label: '동기화 완료' },
   { id: 'running', label: '동기화 중' },
-  { id: 'none', label: '미동기화' },
+  { id: 'unsynced', label: '미동기화' },
   { id: 'error', label: '동기화 실패' },
 ]
 
@@ -300,10 +297,10 @@ function workStatus(w) {
   if (s === 'done') return 'done'
   if (s === 'running' || s === 'pending') return 'running'
   if (s === 'error') return 'error'
-  return 'none'
+  return 'unsynced'
 }
 function statusLabel(w) {
-  return { done: '동기화 완료', running: '동기화 중', error: '동기화 실패', none: '미동기화' }[workStatus(w)]
+  return { done: '동기화 완료', running: '동기화 중', error: '동기화 실패', unsynced: '미동기화' }[workStatus(w)]
 }
 function statusClass(w) {
   return 's-' + workStatus(w)
@@ -335,6 +332,15 @@ const stillBusy = ref(false)
 
 function openDetail(w) {
   store.openWork(w.id) // URL 즉시 변경 + 아래 watch가 로딩 처리
+}
+async function onQuickDelete(w) {
+  if (!confirm(`'${w.title}'을(를) 삭제할까요? 스틸·출연 정보도 함께 삭제됩니다.`)) return
+  try {
+    await store.removeWork(w.id)
+    store.notify('삭제되었습니다.', 'ok')
+  } catch (err) {
+    store.notify(err.message, 'error')
+  }
 }
 function closeDetail() {
   store.closeWork()
@@ -600,22 +606,28 @@ async function pollJob() {
 .title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.6rem;
+  font-weight: 700;
   color: var(--ink);
+  flex-shrink: 0;
 }
 .head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 18px;
 }
 .head-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
+.head-actions .btn {
+  padding: 7px 14px;
+  font-size: 0.8rem;
+}
 .search {
-  max-width: 360px;
+  flex: 1;
+  max-width: 420px;
 }
 
 /* 필터 */
@@ -628,36 +640,42 @@ async function pollJob() {
 }
 .seg {
   display: inline-flex;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   padding: 3px;
   gap: 2px;
 }
 .seg-btn {
-  padding: 6px 16px;
-  font-size: 0.84rem;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--ink-soft);
   background: transparent;
-  border: none;
-  border-radius: 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   cursor: pointer;
 }
 .seg-btn.on {
-  color: var(--gold);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  color: var(--red-strong);
+  border: 1px solid var(--red-strong);
+  box-shadow: none;
 }
 .chips {
   display: flex;
-  gap: 7px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 .fchip {
-  padding: 6px 13px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
   color: var(--ink-soft);
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -665,13 +683,15 @@ async function pollJob() {
   cursor: pointer;
 }
 .fchip.on {
-  color: var(--gold);
-  border-color: var(--gold);
-  background: var(--gold-soft);
+  color: var(--red-strong);
+  border-color: var(--red-strong);
+  background: #fdeee4;
+}
+.fchip.error {
+  color: var(--danger);
+  border-color: #f3b8b2;
 }
 .fchip.error.on {
-  color: var(--danger);
-  border-color: var(--danger);
   background: #fdeeec;
 }
 
@@ -682,25 +702,30 @@ async function pollJob() {
   gap: 18px;
 }
 .card {
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  gap: 10px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  overflow: hidden;
-  transition: transform 0.14s, border-color 0.16s, box-shadow 0.16s;
+  transition: border-color 0.16s, box-shadow 0.16s;
 }
 .card:hover {
-  transform: translateY(-3px);
   border-color: var(--line-bright);
   box-shadow: var(--shadow-md);
 }
 .poster {
   position: relative;
+  width: 100%;
   aspect-ratio: 2 / 3;
   background: var(--surface-3);
   display: grid;
   place-items: center;
   overflow: hidden;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 .poster img {
   width: 100%;
@@ -731,28 +756,44 @@ async function pollJob() {
   color: var(--gold);
 }
 .meta {
-  padding: 11px 13px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  cursor: pointer;
 }
 .name {
-  font-weight: 600;
-  font-size: 0.94rem;
+  font-weight: 700;
+  font-size: 1rem;
   color: var(--ink);
 }
-.year {
+.tmdb-line {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   color: var(--ink-dim);
 }
 .status {
-  align-self: flex-start;
-  margin-top: 2px;
-  padding: 2px 8px;
-  font-size: 0.68rem;
+  padding: 3px 12px;
+  font-size: 0.72rem;
   font-weight: 600;
-  border-radius: 5px;
+  border-radius: 999px;
+}
+.card-delete {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  background: #7c3aed;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.16s;
+}
+.card-delete:hover {
+  background: #6d28d9;
 }
 .status.s-done {
   color: var(--ok);
@@ -766,7 +807,7 @@ async function pollJob() {
   color: var(--danger);
   background: #fdeeec;
 }
-.status.s-none {
+.status.s-unsynced {
   color: var(--ink-faint);
   background: var(--surface-2);
 }
@@ -852,7 +893,7 @@ async function pollJob() {
 .detail-meta em.s-error {
   color: var(--danger);
 }
-.detail-meta em.s-none {
+.detail-meta em.s-unsynced {
   color: var(--ink-faint);
 }
 .detail-meta .dot {

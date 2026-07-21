@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from app.schemas.work import WorkResponse
+
 
 class PersonResponse(BaseModel):
     id: str
@@ -19,3 +21,4 @@ class FaceResponse(BaseModel):
 
 class PersonDetailResponse(PersonResponse):
     faces: list[FaceResponse] = []
+    works: list[WorkResponse] = []

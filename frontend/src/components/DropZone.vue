@@ -1,7 +1,7 @@
 <template>
   <label
     class="drop"
-    :class="{ over: dragOver, busy }"
+    :class="{ over: dragOver, busy, large: variant === 'search' }"
     @dragover.prevent="dragOver = true"
     @dragleave.prevent="dragOver = false"
     @drop.prevent="onDrop"
@@ -15,7 +15,18 @@
       :disabled="busy"
       @change="onChange"
     />
-    <svg viewBox="0 0 24 24" width="22" height="22" class="ico" aria-hidden="true">
+    <svg
+      v-if="variant === 'search'"
+      viewBox="0 0 24 24"
+      :width="iconSize"
+      :height="iconSize"
+      class="ico"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.6" />
+      <path d="m20.5 20.5-4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+    </svg>
+    <svg v-else viewBox="0 0 24 24" :width="iconSize" :height="iconSize" class="ico" aria-hidden="true">
       <path
         d="M12 16V5m0 0L8 9m4-4 4 4"
         fill="none"
@@ -33,18 +44,21 @@
       />
     </svg>
     <span class="label">{{ busy ? '처리 중…' : label }}</span>
-    <span class="hint">JPEG · PNG{{ multiple ? ' · 여러 장 가능' : '' }}</span>
+    <span v-if="variant !== 'search'" class="hint">JPEG · PNG{{ multiple ? ' · 여러 장 가능' : '' }}</span>
   </label>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   label: { type: String, default: '이미지를 드래그하거나 클릭해 선택' },
   multiple: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
+  // 'default' | 'search' — search는 크고 여백이 넉넉한 돋보기 스타일(작품 매칭 등 단일 업로드용)
+  variant: { type: String, default: 'default' },
 })
+const iconSize = computed(() => (props.variant === 'search' ? 40 : 22))
 const emit = defineEmits(['files'])
 
 const input = ref(null)
@@ -96,6 +110,23 @@ function onDrop(e) {
 .drop.busy {
   opacity: 0.6;
   cursor: progress;
+}
+.drop.large {
+  min-height: 420px;
+  gap: 18px;
+  background: var(--surface);
+  border-color: var(--line-strong);
+}
+.drop.large .ico {
+  color: var(--ink-faint);
+}
+.drop.large .label {
+  font-size: 0.98rem;
+  color: var(--ink-faint);
+}
+.drop.large:hover .ico,
+.drop.large:hover .label {
+  color: var(--ink-soft);
 }
 .hidden-input {
   display: none;

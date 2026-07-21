@@ -1,16 +1,16 @@
 <template>
   <section class="panel">
     <div class="head">
-      <p class="eyebrow">Match</p>
-      <h2 class="title">공동 출연 탐색</h2>
-      <p class="desc">사진을 올리면 여러 얼굴을 한 번에 식별하고, 그 인물들이 함께 출연한 작품을 찾습니다.</p>
+      <h2 class="title">작품 찾기</h2>
+      <p class="desc">이미지를 업로드하여 출연진을 분석하고 공통 출연 작품을 검색합니다.</p>
     </div>
 
     <!-- 이미지 분석 -->
     <DropZone
       v-if="!imageUrl"
+      variant="search"
       :busy="analyzing"
-      label="공동 출연 사진을 드래그하거나 클릭 (JPEG/PNG)"
+      label="이미지를 드래그하거나 클릭하여 업로드하세요"
       @files="onAnalyze"
     />
 
@@ -131,18 +131,16 @@ function resetAnalyze() {
   flex-direction: column;
   gap: 20px;
 }
-.eyebrow {
-  margin: 0 0 6px;
-}
 .title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.9rem;
+  font-weight: 700;
   color: var(--ink);
 }
 .desc {
-  margin: 7px 0 0;
-  font-size: 0.88rem;
+  margin: 8px 0 0;
+  font-size: 0.92rem;
   color: var(--ink-soft);
 }
 

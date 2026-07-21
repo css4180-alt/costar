@@ -38,7 +38,7 @@ export const store = reactive({
   waking: false,
 
   // 현재 탭: 'people' | 'works' | 'match' (해시 URL과 동기화)
-  tab: 'people',
+  tab: 'match',
   // 작품 상세로 진입한 작품 id (없으면 목록). URL: #/works/<id>
   workId: null,
 
@@ -110,7 +110,7 @@ export const store = reactive({
     const [seg, id] = raw.split('/')
     const tab = ['people', 'works', 'match'].includes(seg)
       ? seg
-      : localStorage.getItem(TAB_KEY) || 'people'
+      : localStorage.getItem(TAB_KEY) || 'match'
     this.tab = tab
     this.workId = tab === 'works' && id ? decodeURIComponent(id) : null
     localStorage.setItem(TAB_KEY, tab)
