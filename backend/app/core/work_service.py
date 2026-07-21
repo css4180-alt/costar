@@ -56,12 +56,17 @@ def _now_iso() -> str:
 def _work_view(item: dict, *, rep_key: str | None = None) -> dict:
     # 전용 포스터가 있으면 우선 사용하고, 없으면 첫 스틸을 대표 이미지로 쓴다.
     image_key = item.get("poster_key") or rep_key
+    tmdb_id = item.get("tmdb_id")
     return {
         "id": item["SK"].split("#", 1)[1],
         "title": item.get("title", ""),
         "year": item.get("year"),
         "created_at": item.get("created_at"),
         "rep_url": s3.generate_presigned_get(image_key) if image_key else None,
+        "media_type": item.get("media_type"),
+        "tmdb_id": int(tmdb_id) if tmdb_id is not None else None,
+        "release_date": item.get("release_date"),
+        "import_status": item.get("import_status"),
     }
 
 
@@ -85,6 +90,12 @@ def create_work(
     year: int | None = None,
     poster_bytes: bytes | None = None,
     poster_content_type: str | None = None,
+    *,
+    media_type: str | None = None,
+    tmdb_id: int | None = None,
+    overview: str | None = None,
+    release_date: str | None = None,
+    import_status: str | None = None,
 ) -> dict:
     title = title.strip()
     if not title:
@@ -99,6 +110,16 @@ def create_work(
     }
     if year is not None:
         item["year"] = year
+    # TMDB 임포트 메타데이터(선택).
+    for key, value in (
+        ("media_type", media_type),
+        ("tmdb_id", tmdb_id),
+        ("overview", overview),
+        ("release_date", release_date),
+        ("import_status", import_status),
+    ):
+        if value is not None:
+            item[key] = value
 
     # 포스터가 주어지면 S3에 올리고 키를 저장한다(얼굴 인덱싱 대상 아님).
     if poster_bytes:
@@ -110,6 +131,17 @@ def create_work(
     dynamo.put_item(item)
     logger.info("work created: account=%s work_id=%s", account, work_id)
     return _work_view(item)
+
+
+def set_import_status(account: str, work_id: str, status: str) -> None:
+    """작품의 임포트(동기화) 상태를 갱신한다."""
+    dynamo.update_item(
+        _pk(account),
+        _work_sk(work_id),
+        "SET #s = :v",
+        {":v": status},
+        {"#s": "import_status"},
+    )
 
 
 def _get_work_item(account: str, work_id: str) -> dict:
@@ -141,16 +173,22 @@ def get_work(account: str, work_id: str) -> dict:
         # SK = APPEAR#W#{work_id}#P#{person_id}
         person_id = ap["SK"].split("#P#", 1)[1]
         person = dynamo.get_item(_pk(account), f"PERSON#{person_id}")
+        rep_person_key = person.get("rep_key") if person else None
         appearances.append(
             {
                 "person_id": person_id,
                 "name": person.get("name") if person else None,
                 "confidence": float(ap.get("confidence", 0)),
+                "character": ap.get("character"),
+                "rep_url": s3.generate_presigned_get(rep_person_key) if rep_person_key else None,
             }
         )
+    # 배역/이름 순으로 정렬해 안정적인 순서를 준다.
+    appearances.sort(key=lambda a: (a["name"] or ""))
 
     rep_key = still_items[0].get("image_key") if still_items else None
     view = _work_view(work_item, rep_key=rep_key)
+    view["overview"] = work_item.get("overview")
     view["stills"] = [_still_view(s) for s in still_items]
     view["appearances"] = appearances
     return view
@@ -215,21 +253,60 @@ def _to_decimal(value: float):
     return Decimal(str(round(value, 4)))
 
 
-def add_tmdb_appearance(account: str, person_id: str, work_id: str) -> None:
+def add_tmdb_appearance(
+    account: str, person_id: str, work_id: str, character: str | None = None
+) -> None:
     """TMDB 크레딧 기반 출연 관계를 양방향으로 기록한다.
 
     스틸 얼굴 매칭이 아니라 TMDB 출연진 정보로 확정된 출연이므로 신뢰도를 100으로
     두고 source=tmdb로 표시한다(멱등 — 재실행해도 동일 결과).
     """
     for sk in (_appear_p_sk(person_id, work_id), _appear_w_sk(work_id, person_id)):
+        item = {
+            "PK": _pk(account),
+            "SK": sk,
+            "confidence": _to_decimal(100.0),
+            "source": "tmdb",
+        }
+        if character:
+            item["character"] = character
+        dynamo.put_item(item)
+
+
+def add_cast(account: str, work_id: str, person_id: str) -> dict:
+    """등록된 인물을 작품 출연진으로 직접 연결한다(수동 추가)."""
+    _get_work_item(account, work_id)  # 작품 존재 확인
+    person = dynamo.get_item(_pk(account), f"PERSON#{person_id}")
+    if person is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 인물입니다.")
+    for sk in (_appear_p_sk(person_id, work_id), _appear_w_sk(work_id, person_id)):
         dynamo.put_item(
             {
                 "PK": _pk(account),
                 "SK": sk,
                 "confidence": _to_decimal(100.0),
-                "source": "tmdb",
+                "source": "manual",
             }
         )
+    rep_person_key = person.get("rep_key")
+    return {
+        "person_id": person_id,
+        "name": person.get("name"),
+        "confidence": 100.0,
+        "character": None,
+        "rep_url": s3.generate_presigned_get(rep_person_key) if rep_person_key else None,
+    }
+
+
+def remove_cast(account: str, work_id: str, person_id: str) -> None:
+    """작품에서 특정 인물의 출연 관계만 제거한다(양방향). 인물 자체는 유지."""
+    _get_work_item(account, work_id)  # 작품 존재 확인
+    dynamo.batch_delete(
+        [
+            (_pk(account), _appear_p_sk(person_id, work_id)),
+            (_pk(account), _appear_w_sk(work_id, person_id)),
+        ]
+    )
 
 
 def _index_one_still(account: str, work_id: str, image_bytes: bytes, content_type: str) -> dict:

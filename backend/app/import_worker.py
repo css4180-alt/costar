@@ -32,7 +32,8 @@ def handler(event: dict, context: object) -> dict:
                 account=body["account"],
                 job_id=body["job_id"],
                 work_id=body["work_id"],
-                tmdb_movie_id=body["tmdb_movie_id"],
+                media_type=body["media_type"],
+                tmdb_id=body["tmdb_id"],
             )
         except Exception:
             # process_import은 자체적으로 JOB#에 오류를 기록한다. 여기서 예외를

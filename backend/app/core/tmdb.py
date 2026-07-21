@@ -28,34 +28,51 @@ def _get(path: str, **params) -> dict:
     return resp.json()
 
 
-def _movie_brief(m: dict) -> dict:
-    """검색/상세 결과를 공통 요약 dict로 변환한다."""
-    release = m.get("release_date") or ""
+MEDIA_TYPES = ("movie", "tv")
+
+
+def _title_brief(m: dict, media_type: str) -> dict:
+    """영화/TV 검색·상세 결과를 공통 요약 dict로 변환한다."""
+    is_tv = media_type == "tv"
+    release = (m.get("first_air_date") if is_tv else m.get("release_date")) or ""
+    title = (
+        (m.get("name") or m.get("original_name"))
+        if is_tv
+        else (m.get("title") or m.get("original_title"))
+    ) or ""
     year = int(release[:4]) if release[:4].isdigit() else None
     poster = m.get("poster_path")
     return {
         "tmdb_id": m["id"],
-        "title": m.get("title") or m.get("original_title") or "",
+        "media_type": media_type,
+        "title": title,
         "year": year,
+        "release_date": release or None,
         "poster_url": f"{TMDB_IMG}{poster}" if poster else None,
         "overview": m.get("overview") or None,
     }
 
 
-def search_movies(query: str, limit: int = 12) -> list[dict]:
-    """제목으로 영화를 검색해 요약 목록을 반환한다."""
-    data = _get("/search/movie", query=query)
-    return [_movie_brief(m) for m in (data.get("results") or [])[:limit]]
+def search_titles(query: str, media_type: str = "movie", limit: int = 12) -> list[dict]:
+    """제목으로 영화/TV를 검색해 요약 목록을 반환한다."""
+    if media_type not in MEDIA_TYPES:
+        media_type = "movie"
+    data = _get(f"/search/{media_type}", query=query)
+    return [_title_brief(m, media_type) for m in (data.get("results") or [])[:limit]]
 
 
-def get_movie(movie_id: int) -> dict:
-    """영화 상세(제목·연도·포스터)를 반환한다."""
-    return _movie_brief(_get(f"/movie/{movie_id}"))
+def get_title(media_type: str, tmdb_id: int) -> dict:
+    """영화/TV 상세(제목·연도·개봉일·개요·포스터)를 반환한다."""
+    if media_type not in MEDIA_TYPES:
+        media_type = "movie"
+    return _title_brief(_get(f"/{media_type}/{tmdb_id}"), media_type)
 
 
-def get_cast(movie_id: int) -> list[dict]:
-    """영화 출연진 전체를 반환한다(상위부터, 인원 제한 없음)."""
-    data = _get(f"/movie/{movie_id}/credits")
+def get_title_cast(media_type: str, tmdb_id: int) -> list[dict]:
+    """영화/TV 출연진 전체를 반환한다(상위부터, 인원 제한 없음)."""
+    if media_type not in MEDIA_TYPES:
+        media_type = "movie"
+    data = _get(f"/{media_type}/{tmdb_id}/credits")
     cast = []
     for c in data.get("cast") or []:
         if not c.get("id"):

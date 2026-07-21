@@ -4,9 +4,12 @@ import logging
 
 from fastapi import APIRouter, File, Form, UploadFile
 
-from app.core import work_service
+from app.core import import_service, work_service
 from app.core.auth import AccountDep
+from app.schemas.imports import ImportJobResponse
 from app.schemas.work import (
+    AddCastRequest,
+    AppearanceResponse,
     StillsUploadResponse,
     WorkDetailResponse,
     WorkResponse,
@@ -59,3 +62,21 @@ async def add_stills(
 def delete_work(work_id: str, account: str = AccountDep) -> None:
     """작품과 관련 스틸·출연 정보를 모두 삭제한다(캐스케이드)."""
     work_service.delete_work(account, work_id)
+
+
+@router.post("/{work_id}/resync", response_model=ImportJobResponse, status_code=202)
+def resync_work(work_id: str, account: str = AccountDep) -> ImportJobResponse:
+    """TMDB에서 출연진을 다시 동기화한다(재임포트)."""
+    return import_service.resync(account, work_id)
+
+
+@router.post("/{work_id}/cast", response_model=AppearanceResponse, status_code=201)
+def add_cast(work_id: str, req: AddCastRequest, account: str = AccountDep) -> AppearanceResponse:
+    """등록된 인물을 작품 출연진으로 직접 추가한다."""
+    return work_service.add_cast(account, work_id, req.person_id)
+
+
+@router.delete("/{work_id}/cast/{person_id}", status_code=204)
+def remove_cast(work_id: str, person_id: str, account: str = AccountDep) -> None:
+    """작품에서 특정 인물의 출연 관계만 제거한다(인물 자체는 유지)."""
+    work_service.remove_cast(account, work_id, person_id)

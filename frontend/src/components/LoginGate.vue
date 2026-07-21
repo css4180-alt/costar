@@ -70,7 +70,7 @@ async function submit() {
   height: 100%;
   padding: 24px;
   background:
-    radial-gradient(120% 90% at 50% -10%, #1a1d2b 0%, transparent 55%),
+    radial-gradient(120% 90% at 50% -10%, rgba(37, 99, 235, 0.08) 0%, transparent 55%),
     var(--bg);
 }
 

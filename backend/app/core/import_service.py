@@ -75,53 +75,82 @@ def _update_job(account: str, job_id: str, **fields) -> None:
 # API: 임포트 시작 / 조회
 # ─────────────────────────────────────────────────────────────────────────────
 
-def start_import(account: str, tmdb_movie_id: int) -> dict:
-    """영화 임포트를 시작한다: 작품 생성 + JOB# + 워커 디스패치."""
+def start_import(account: str, media_type: str, tmdb_id: int) -> dict:
+    """영화/TV 임포트를 시작한다: 작품 생성 + JOB# + 워커 디스패치."""
     _require_tmdb()
-    movie = tmdb.get_movie(tmdb_movie_id)
+    title = tmdb.get_title(media_type, tmdb_id)
 
     # 포스터가 있으면 내려받아 작품 대표 이미지로 저장한다.
     poster_bytes = poster_ct = None
-    if movie.get("poster_url"):
+    if title.get("poster_url"):
         try:
-            poster_bytes, poster_ct = tmdb.download_image(movie["poster_url"])
+            poster_bytes, poster_ct = tmdb.download_image(title["poster_url"])
         except Exception:
-            logger.warning("poster download failed: %s", movie["poster_url"])
+            logger.warning("poster download failed: %s", title["poster_url"])
 
     work = work_service.create_work(
-        account, movie["title"], movie.get("year"), poster_bytes, poster_ct
+        account,
+        title["title"],
+        title.get("year"),
+        poster_bytes,
+        poster_ct,
+        media_type=title["media_type"],
+        tmdb_id=tmdb_id,
+        overview=title.get("overview"),
+        release_date=title.get("release_date"),
+        import_status="pending",
     )
+    return _dispatch_job(account, work["id"], title["media_type"], tmdb_id, title["title"])
 
+
+def resync(account: str, work_id: str) -> dict:
+    """기존 작품의 출연진을 TMDB에서 다시 동기화한다(재임포트)."""
+    _require_tmdb()
+    work = work_service._get_work_item(account, work_id)
+    media_type = work.get("media_type")
+    tmdb_id = work.get("tmdb_id")
+    if not media_type or tmdb_id is None:
+        raise HTTPException(
+            status_code=400, detail="TMDB에서 임포트한 작품만 동기화할 수 있습니다."
+        )
+    work_service.set_import_status(account, work_id, "pending")
+    return _dispatch_job(account, work_id, media_type, int(tmdb_id), work.get("title", ""))
+
+
+def _dispatch_job(
+    account: str, work_id: str, media_type: str, tmdb_id: int, title: str
+) -> dict:
+    """JOB# 생성 + SQS 디스패치(큐 미설정 시 동기 처리)."""
     job_id = uuid.uuid4().hex
     ttl = int(datetime.now(timezone.utc).timestamp()) + _JOB_TTL_SECONDS
-    job_item = {
-        "PK": _pk(account),
-        "SK": _job_sk(job_id),
-        "status": "pending",
-        "work_id": work["id"],
-        "title": movie["title"],
-        "tmdb_movie_id": tmdb_movie_id,
-        "total": 0,
-        "done": 0,
-        "skipped": 0,
-        "created_at": _now_iso(),
-        "updated_at": _now_iso(),
-        "ttl": ttl,
-    }
-    dynamo.put_item(job_item)
-
+    dynamo.put_item(
+        {
+            "PK": _pk(account),
+            "SK": _job_sk(job_id),
+            "status": "pending",
+            "work_id": work_id,
+            "title": title,
+            "media_type": media_type,
+            "tmdb_id": tmdb_id,
+            "total": 0,
+            "done": 0,
+            "skipped": 0,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "ttl": ttl,
+        }
+    )
     message = {
         "account": account,
         "job_id": job_id,
-        "work_id": work["id"],
-        "tmdb_movie_id": tmdb_movie_id,
+        "work_id": work_id,
+        "media_type": media_type,
+        "tmdb_id": tmdb_id,
     }
     if settings.import_queue_url:
         sqs.send_import_message(message)
     else:
-        # 큐 미설정(로컬 개발) → 동기 처리
-        process_import(**message)
-
+        process_import(**message)  # 큐 미설정(로컬 개발) → 동기 처리
     return _job_view(dynamo.get_item(_pk(account), _job_sk(job_id)))
 
 
@@ -190,11 +219,14 @@ def _register_cast_member(account: str, member: dict) -> str:
     return person_id
 
 
-def process_import(account: str, job_id: str, work_id: str, tmdb_movie_id: int) -> None:
+def process_import(
+    account: str, job_id: str, work_id: str, media_type: str, tmdb_id: int
+) -> None:
     """워커 진입점: 출연진 전체를 등록하고 출연 관계를 기록한다."""
     try:
         _update_job(account, job_id, status="running")
-        cast = tmdb.get_cast(tmdb_movie_id)
+        work_service.set_import_status(account, work_id, "running")
+        cast = tmdb.get_title_cast(media_type, tmdb_id)
         _update_job(account, job_id, total=len(cast))
 
         done = 0
@@ -212,13 +244,16 @@ def process_import(account: str, job_id: str, work_id: str, tmdb_movie_id: int) 
                         skipped=skipped,
                         message="일일 얼굴 연산 한도에 도달해 일부만 등록했습니다.",
                     )
+                    work_service.set_import_status(account, work_id, "done")
                     return
                 raise
 
             if person_id is None:
                 skipped += 1
             else:
-                work_service.add_tmdb_appearance(account, person_id, work_id)
+                work_service.add_tmdb_appearance(
+                    account, person_id, work_id, member.get("character")
+                )
                 done += 1
             _update_job(account, job_id, done=done, skipped=skipped)
 
@@ -230,6 +265,7 @@ def process_import(account: str, job_id: str, work_id: str, tmdb_movie_id: int) 
             skipped=skipped,
             message=f"출연진 {done}명 등록, {skipped}명 건너뜀.",
         )
+        work_service.set_import_status(account, work_id, "done")
         logger.info(
             "import done: job=%s work=%s done=%d skipped=%d", job_id, work_id, done, skipped
         )
@@ -237,5 +273,6 @@ def process_import(account: str, job_id: str, work_id: str, tmdb_movie_id: int) 
         logger.exception("import failed: job=%s", job_id)
         try:
             _update_job(account, job_id, status="error", message=str(exc)[:200])
+            work_service.set_import_status(account, work_id, "error")
         except Exception:
             logger.exception("failed to mark job error: job=%s", job_id)

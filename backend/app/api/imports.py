@@ -11,27 +11,28 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.core import import_service, tmdb
 from app.core.auth import AccountDep
-from app.schemas.imports import ImportJobResponse, ImportRequest, TmdbMovie
+from app.schemas.imports import ImportJobResponse, ImportRequest, TmdbTitle
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["imports"])
 
 
-@router.get("/tmdb/search", response_model=list[TmdbMovie])
+@router.get("/tmdb/search", response_model=list[TmdbTitle])
 def tmdb_search(
     query: str = Query(..., min_length=1),
+    media_type: str = Query("movie"),
     account: str = AccountDep,
-) -> list[TmdbMovie]:
-    """제목으로 TMDB 영화를 검색한다."""
+) -> list[TmdbTitle]:
+    """제목으로 TMDB 영화/TV를 검색한다."""
     if not tmdb.is_configured():
         raise HTTPException(status_code=503, detail="TMDB가 구성되어 있지 않습니다.")
-    return tmdb.search_movies(query.strip())
+    return tmdb.search_titles(query.strip(), media_type)
 
 
 @router.post("/works/import", response_model=ImportJobResponse, status_code=202)
 def import_work(req: ImportRequest, account: str = AccountDep) -> ImportJobResponse:
-    """영화 1편을 임포트한다(작품 생성 + 출연진 비동기 등록)."""
-    return import_service.start_import(account, req.tmdb_movie_id)
+    """영화/TV 1편을 임포트한다(작품 생성 + 출연진 비동기 등록)."""
+    return import_service.start_import(account, req.media_type, req.tmdb_id)
 
 
 @router.get("/imports/{job_id}", response_model=ImportJobResponse)

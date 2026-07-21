@@ -1,47 +1,47 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   CoStar — 다크 시네마틱 테마
-   필름 그레인, 포스터 그리드, 황금/적색 액센트(필름 라이트). rag-chatbot의
-   밝은 톤과 의도적으로 차별화한다(포트폴리오 다양성, DESIGN §7).
+   CoStar — 라이트 테마
+   밝은 배경 + 블루 액센트 + 좌측 사이드바. 깔끔한 SaaS 톤.
+   변수 이름은 유지해 컴포넌트는 그대로 두고 값만 라이트로 매핑한다.
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* 배경(어두운 시네마) */
-  --bg: #0a0c11;
-  --bg-soft: #0f121a;
-  --surface: #151924;
-  --surface-2: #1c212e;
-  --surface-3: #232a3a;
+  /* 배경(라이트) */
+  --bg: #f3f4f6;
+  --bg-soft: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f6f7f9;
+  --surface-3: #eceef1;
 
   /* 라인 */
-  --line: #262d3c;
-  --line-strong: #364054;
-  --line-bright: #3a4458;
+  --line: #e5e7eb;
+  --line-strong: #d4d7dd;
+  --line-bright: #cdd1d8;
 
   /* 텍스트 */
-  --ink: #eef1f7;
-  --ink-soft: #aeb6c6;
-  --ink-faint: #6b7488;
-  --ink-dim: #707a8e;
+  --ink: #1f2430;
+  --ink-soft: #4b5563;
+  --ink-faint: #9aa1ad;
+  --ink-dim: #aab0ba;
 
-  /* 액센트: 필름 골드 + 시네마 레드 */
-  --gold: #e7c66b;
-  --gold-strong: #f1d585;
-  --gold-soft: #e7c66b1a;
-  --red: #c9543f;
-  --red-strong: #db6650;
-  --ink-on-gold: #1a1407;
+  /* 액센트: 프라이머리 블루 + 보조 코랄 */
+  --gold: #2563eb;
+  --gold-strong: #1d4ed8;
+  --gold-soft: rgba(37, 99, 235, 0.1);
+  --red: #ef6c3b;
+  --red-strong: #f97316;
+  --ink-on-gold: #ffffff;
 
   /* 상태 */
-  --danger: #e0614c;
-  --ok: #5fbf8e;
+  --danger: #dc2626;
+  --ok: #16a34a;
 
   /* 형태 */
   --radius: 14px;
   --radius-sm: 9px;
   --radius-lg: 20px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 6px 20px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 16px 48px rgba(16, 24, 40, 0.14);
 
   /* 폰트 */
   --font-display: 'Georgia', 'Times New Roman', serif;
@@ -68,29 +68,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 필름 그레인 오버레이 — 전체에 은은한 노이즈를 깐다. */
-#app::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.04;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
 /* 스크롤바 */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-3);
+  background: #d1d5db;
   border-radius: 6px;
   border: 2px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2e3850;
+  background: #b8bdc7;
 }
 
 button {
@@ -125,19 +114,19 @@ button {
 .btn-ghost {
   color: var(--ink-soft);
   background: transparent;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--ink);
 }
 .btn-danger {
-  color: #fff;
-  background: transparent;
-  border: 1px solid #5a2e2a;
+  color: var(--danger);
+  background: #fff;
+  border: 1px solid #f1c4c0;
 }
 .btn-danger:hover:not(:disabled) {
-  background: #3a1f1c;
+  background: #fdeeec;
   border-color: var(--danger);
 }
 
@@ -148,8 +137,8 @@ button {
   font-size: 0.92rem;
   font-family: inherit;
   color: var(--ink);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   transition: border-color 0.16s, box-shadow 0.16s;
 }

@@ -26,7 +26,15 @@ def _fake_face_record(*_args, **_kwargs):
     return [{"Face": {"FaceId": uuid.uuid4().hex}}]
 
 
-_MOVIE = {"tmdb_id": 1, "title": "테스트 영화", "year": 2000, "poster_url": None}
+_MOVIE = {
+    "tmdb_id": 1,
+    "media_type": "movie",
+    "title": "테스트 영화",
+    "year": 2000,
+    "release_date": "2000-01-01",
+    "poster_url": None,
+    "overview": "개요",
+}
 _CAST = [
     {"tmdb_id": 11, "name": "배우 A", "profile_path": "/a.jpg"},
     {"tmdb_id": 12, "name": "배우 B", "profile_path": "/b.jpg"},
@@ -37,13 +45,13 @@ _CAST = [
 def test_import_registers_work_and_cast(import_env):
     account = "acct1"
     with (
-        patch("app.core.tmdb.get_movie", return_value=_MOVIE),
-        patch("app.core.tmdb.get_cast", return_value=_CAST),
+        patch("app.core.tmdb.get_title", return_value=_MOVIE),
+        patch("app.core.tmdb.get_title_cast", return_value=_CAST),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
         patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
     ):
-        job = import_service.start_import(account, 1)
+        job = import_service.start_import(account, "movie", 1)
 
     assert job["status"] == "done"
     assert job["total"] == 3
@@ -73,13 +81,13 @@ def test_import_dedupes_existing_cast(import_env):
         )
 
     with (
-        patch("app.core.tmdb.get_movie", return_value=_MOVIE),
-        patch("app.core.tmdb.get_cast", return_value=_CAST),
+        patch("app.core.tmdb.get_title", return_value=_MOVIE),
+        patch("app.core.tmdb.get_title_cast", return_value=_CAST),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
         patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
     ):
-        import_service.start_import(account, 1)
+        import_service.start_import(account, "movie", 1)
 
     persons = face_service.list_persons(account)
     # A는 중복 생성되지 않아 총 2명(A, B)
@@ -93,13 +101,13 @@ def test_import_skips_faceless_profile(import_env):
     account = "acct1"
     cast = [{"tmdb_id": 21, "name": "얼굴없음", "profile_path": "/x.jpg"}]
     with (
-        patch("app.core.tmdb.get_movie", return_value=_MOVIE),
-        patch("app.core.tmdb.get_cast", return_value=cast),
+        patch("app.core.tmdb.get_title", return_value=_MOVIE),
+        patch("app.core.tmdb.get_title_cast", return_value=cast),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
         patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", return_value=[]),
     ):
-        job = import_service.start_import(account, 1)
+        job = import_service.start_import(account, "movie", 1)
 
     assert job["done"] == 0
     assert job["skipped"] == 1
@@ -111,7 +119,7 @@ def test_import_requires_tmdb_configured(monkeypatch, dynamo_table, s3_bucket):
 
     monkeypatch.setattr(settings, "tmdb_api_key", "")
     with pytest.raises(HTTPException) as exc:
-        import_service.start_import("acct1", 1)
+        import_service.start_import("acct1", "movie", 1)
     assert exc.value.status_code == 503
 
 
@@ -120,14 +128,14 @@ def test_import_api_endpoint(import_env, mock_ensure_collection):
     from app.main import app
 
     with (
-        patch("app.core.tmdb.get_movie", return_value=_MOVIE),
-        patch("app.core.tmdb.get_cast", return_value=_CAST[:1]),
+        patch("app.core.tmdb.get_title", return_value=_MOVIE),
+        patch("app.core.tmdb.get_title_cast", return_value=_CAST[:1]),
         patch("app.core.tmdb.download_profile", return_value=(b"img", "image/jpeg")),
         patch("app.core.tmdb.get_person_profiles", return_value=[]),
         patch("app.core.rekognition.index_face_from_s3", side_effect=_fake_face_record),
         TestClient(app, raise_server_exceptions=True) as client,
     ):
-        resp = client.post("/api/works/import", json={"tmdb_movie_id": 1})
+        resp = client.post("/api/works/import", json={"media_type": "movie", "tmdb_id": 1})
         assert resp.status_code == 202
         job = resp.json()
         assert job["status"] == "done"

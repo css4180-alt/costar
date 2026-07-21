@@ -3,16 +3,19 @@
 from pydantic import BaseModel
 
 
-class TmdbMovie(BaseModel):
+class TmdbTitle(BaseModel):
     tmdb_id: int
+    media_type: str  # movie | tv
     title: str
     year: int | None = None
+    release_date: str | None = None
     poster_url: str | None = None
     overview: str | None = None
 
 
 class ImportRequest(BaseModel):
-    tmdb_movie_id: int
+    media_type: str = "movie"  # movie | tv
+    tmdb_id: int
 
 
 class ImportJobResponse(BaseModel):
