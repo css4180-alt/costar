@@ -197,9 +197,10 @@ export const store = reactive({
   },
 
   async addPerson(name, file) {
-    await this.withOverlay(async () => {
-      await createPerson(name, file)
+    return this.withOverlay(async () => {
+      const person = await createPerson(name, file)
       await Promise.all([this.loadPersons(), this.refreshQuota()])
+      return person
     })
   },
 

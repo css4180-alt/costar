@@ -1,38 +1,22 @@
 <template>
   <section class="panel">
-    <!-- 등록 -->
     <div class="head">
       <div>
         <p class="eyebrow">People</p>
-        <h2 class="title">인물 등록</h2>
-        <p class="desc">이름과 대표 얼굴 사진을 등록하면 작품 스틸과 자동으로 매칭됩니다.</p>
+        <h2 class="title">인물 관리</h2>
       </div>
-    </div>
-
-    <div class="register">
-      <input
-        v-model="name"
-        class="field name"
-        placeholder="인물 이름 (예: 송강호)"
-        :disabled="busy"
-        @keyup.enter="focusDrop"
-      />
-      <DropZone
-        class="reg-drop"
-        :busy="busy"
-        label="대표 사진을 드래그하거나 클릭"
-        @files="onRegister"
-      />
+      <input v-model="search" class="field search" placeholder="이름 검색" />
+      <button class="btn" @click="openCreate">＋ 인물 등록</button>
     </div>
 
     <!-- 목록 -->
     <div class="list-head">
-      <h3 class="sub">등록된 인물 <span class="count">{{ store.persons.length }}</span></h3>
+      <h3 class="sub">인물 <span class="count">{{ filteredPersons.length }}</span></h3>
     </div>
 
-    <div v-if="store.persons.length" class="grid">
+    <div v-if="paginatedPersons.length" class="grid">
       <article
-        v-for="p in store.persons"
+        v-for="p in paginatedPersons"
         :key="p.id"
         class="card"
         @click="openDetail(p)"
@@ -47,7 +31,13 @@
         </div>
       </article>
     </div>
-    <p v-else class="empty">아직 등록된 인물이 없습니다. 위에서 첫 인물을 등록해 보세요.</p>
+    <p v-else class="empty">조건에 맞는 인물이 없습니다.</p>
+
+    <div v-if="totalPages > 1" class="pager">
+      <button class="btn btn-ghost" :disabled="page === 1" @click="page--">‹ 이전</button>
+      <span class="page-info">{{ page }} / {{ totalPages }}</span>
+      <button class="btn btn-ghost" :disabled="page === totalPages" @click="page++">다음 ›</button>
+    </div>
 
     <!-- 상세 모달 -->
     <transition name="fade">
@@ -110,18 +100,127 @@
         </div>
       </div>
     </transition>
+
+    <!-- 인물 등록 모달 -->
+    <transition name="fade">
+      <div v-if="createOpen" class="overlay" @click="closeCreate">
+        <div class="sheet" @click.stop>
+          <header class="sheet-head">
+            <h3 class="sheet-name">인물 등록</h3>
+            <button class="close" @click="closeCreate">✕</button>
+          </header>
+
+          <input
+            v-model="newName"
+            class="field"
+            placeholder="인물 이름 (예: 송강호)"
+            :disabled="createBusy"
+          />
+          <DropZone
+            :busy="createBusy"
+            label="대표 사진을 드래그하거나 클릭"
+            @files="onPickPhoto"
+          />
+
+          <div v-if="store.works.length" class="works-section">
+            <p class="block-label">출연 작품 연결(선택)</p>
+            <div class="work-pick-list">
+              <button
+                v-for="w in store.works"
+                :key="w.id"
+                type="button"
+                class="work-pick"
+                :class="{ on: selectedWorkIds.has(w.id) }"
+                :disabled="createBusy"
+                @click="toggleWork(w.id)"
+              >
+                {{ w.title }}
+              </button>
+            </div>
+          </div>
+
+          <footer class="sheet-foot">
+            <button
+              class="btn"
+              :disabled="createBusy || !newName.trim() || !newPhoto"
+              @click="onCreatePerson"
+            >
+              {{ createBusy ? '등록 중…' : '등록' }}
+            </button>
+          </footer>
+        </div>
+      </div>
+    </transition>
   </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { store } from '../store.js'
 import DropZone from './DropZone.vue'
 
-const name = ref('')
-const busy = ref(false)
 const detail = ref(null)
 const faceBusy = ref(false)
+
+const search = ref('')
+const page = ref(1)
+const PAGE_SIZE = 24
+
+const filteredPersons = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return store.persons
+  return store.persons.filter((p) => (p.name || '').toLowerCase().includes(q))
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredPersons.value.length / PAGE_SIZE)))
+const paginatedPersons = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return filteredPersons.value.slice(start, start + PAGE_SIZE)
+})
+watch(search, () => {
+  page.value = 1
+})
+
+// ── 인물 등록 모달 ──
+const createOpen = ref(false)
+const createBusy = ref(false)
+const newName = ref('')
+const newPhoto = ref(null)
+const selectedWorkIds = ref(new Set())
+
+function openCreate() {
+  createOpen.value = true
+}
+function closeCreate() {
+  createOpen.value = false
+  newName.value = ''
+  newPhoto.value = null
+  selectedWorkIds.value = new Set()
+}
+function onPickPhoto([file]) {
+  newPhoto.value = file
+}
+function toggleWork(id) {
+  const next = new Set(selectedWorkIds.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  selectedWorkIds.value = next
+}
+async function onCreatePerson() {
+  const nm = newName.value.trim()
+  if (!nm || !newPhoto.value) return
+  createBusy.value = true
+  try {
+    const person = await store.addPerson(nm, newPhoto.value)
+    for (const workId of selectedWorkIds.value) {
+      await store.addCast(workId, person.id)
+    }
+    store.notify(`'${nm}' 등록 완료`, 'ok')
+    closeCreate()
+  } catch (err) {
+    store.notify(err.message, 'error')
+  } finally {
+    createBusy.value = false
+  }
+}
 
 function initial(n) {
   return (n || '?').trim().charAt(0).toUpperCase()
@@ -129,25 +228,6 @@ function initial(n) {
 function fmtDate(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleDateString('ko-KR', { year: '2-digit', month: 'short', day: 'numeric' })
-}
-function focusDrop() {}
-
-async function onRegister([file]) {
-  const nm = name.value.trim()
-  if (!nm) {
-    store.notify('이름을 먼저 입력해 주세요.', 'error')
-    return
-  }
-  busy.value = true
-  try {
-    await store.addPerson(nm, file)
-    name.value = ''
-    store.notify(`'${nm}' 등록 완료`, 'ok')
-  } catch (err) {
-    store.notify(err.message, 'error')
-  } finally {
-    busy.value = false
-  }
 }
 
 async function openDetail(p) {
@@ -204,28 +284,14 @@ async function onDelete() {
   font-size: 1.5rem;
   color: var(--ink);
 }
-.desc {
-  margin: 7px 0 0;
-  font-size: 0.88rem;
-  color: var(--ink-soft);
+.head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
 }
-
-.register {
-  display: grid;
-  grid-template-columns: minmax(200px, 320px) 1fr;
-  gap: 16px;
-  align-items: stretch;
-}
-.name {
-  align-self: start;
-}
-.reg-drop {
-  grid-row: span 1;
-}
-@media (max-width: 640px) {
-  .register {
-    grid-template-columns: 1fr;
-  }
+.search {
+  flex: 1;
+  max-width: 320px;
 }
 
 .list-head {
@@ -302,6 +368,18 @@ async function onDelete() {
   background: var(--surface);
   border: 1px dashed var(--line);
   border-radius: var(--radius);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.page-info {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
 }
 
 /* 상세 모달 */
@@ -454,6 +532,26 @@ async function onDelete() {
   font-weight: 600;
   font-size: 0.86rem;
   color: var(--ink);
+}
+.work-pick-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.work-pick {
+  padding: 6px 13px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.work-pick.on {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: var(--gold-soft);
 }
 .sheet-foot {
   display: flex;

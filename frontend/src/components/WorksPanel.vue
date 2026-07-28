@@ -6,8 +6,7 @@
         <h2 class="title">작품 관리</h2>
         <input v-model="search" class="field search" placeholder="검색" />
         <div class="head-actions">
-          <button class="btn btn-ghost" @click="openImport">＋ TMDB 임포트</button>
-          <button class="btn" @click="openCreate">＋ 작품 등록</button>
+          <button class="btn" @click="openImport">＋ TMDB 임포트</button>
         </div>
       </div>
 

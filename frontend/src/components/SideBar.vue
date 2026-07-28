@@ -38,9 +38,36 @@
     </nav>
 
     <div class="foot">
+      <!-- 샘플 사진 내려받기: frontend/public/samples/ 에 넣어둔 고정 이미지 목록.
+           작품 찾기(Match) 테스트용 — API 호출 없이 정적 파일만 링크. -->
+      <div class="samples">
+        <button class="samples-toggle" @click="samplesOpen = !samplesOpen">
+          <span>샘플 사진 내려받기</span>
+          <span class="chev">{{ samplesOpen ? '▾' : '▴' }}</span>
+        </button>
+        <div v-if="samplesOpen" class="samples-list">
+          <a
+            v-for="s in SAMPLE_PHOTOS"
+            :key="s.file"
+            class="sample-item"
+            :href="`/samples/${s.file}`"
+            :download="s.file"
+          >
+            <img :src="`/samples/${s.file}`" :alt="s.title" />
+            <span class="sample-title">{{ s.title }}</span>
+          </a>
+        </div>
+      </div>
+
       <div v-if="quota" class="quota" :title="quotaTitle">
-        <span class="quota-dot" :class="quotaLevel" />
-        <span class="quota-text">오늘 {{ quota.account_remaining }}/{{ quota.account_limit }}</span>
+        <div class="quota-row">
+          <span class="quota-label">남은 사용량</span>
+          <span class="quota-percent">{{ quotaPercent }}%</span>
+        </div>
+        <span class="quota-reset">{{ resetLabel }}</span>
+        <div class="quota-bar">
+          <span class="quota-bar-fill" :class="quotaLevel" :style="{ width: quotaPercent + '%' }" />
+        </div>
       </div>
       <div v-if="store.account && store.account !== '__local__'" class="acct">{{ store.account }}</div>
       <button class="btn btn-ghost logout" @click="store.logout()">로그아웃</button>
@@ -49,8 +76,17 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { store } from '../store.js'
+
+// 샘플 사진: frontend/public/samples/ 에 실제 파일을 넣어두면 그대로 노출된다.
+const SAMPLE_PHOTOS = [
+  { file: 'sample-1.jpg', title: '기생충' },
+  { file: 'sample-2.jpg', title: '밀정1' },
+  { file: 'sample-3.jpg', title: '밀정2' },
+  { file: 'sample-4.png', title: '공동경비구역JSA' },
+  { file: 'sample-5.jpg', title: '놈놈놈' },
+]
 
 const topTabs = [
   {
@@ -89,6 +125,29 @@ const quotaTitle = computed(() => {
   if (!q) return ''
   return `계정 잔여 ${q.account_remaining}/${q.account_limit} · 사이트 잔여 ${q.site_remaining}/${q.site_limit} (얼굴 분석/일)`
 })
+
+const quotaPercent = computed(() => {
+  const q = store.quota
+  if (!q || !q.account_limit) return 100
+  return Math.round((q.account_remaining / q.account_limit) * 100)
+})
+
+// 표시용 초기화 시각은 KST(UTC+9) 자정 기준. 남은 시간을 시간 단위로 표시.
+// ponytail: 렌더 시점 스냅샷(쿼터 갱신 시마다 재계산)이며 매 초 틱하지는 않는다.
+const KST_OFFSET_MS = 9 * 3600000
+const resetLabel = computed(() => {
+  const nowKst = Date.now() + KST_OFFSET_MS
+  const kstDate = new Date(nowKst)
+  const nextMidnightKst = Date.UTC(
+    kstDate.getUTCFullYear(),
+    kstDate.getUTCMonth(),
+    kstDate.getUTCDate() + 1,
+  )
+  const hours = Math.max(1, Math.ceil((nextMidnightKst - nowKst) / 3600000))
+  return `${hours}시간 후 초기화`
+})
+
+const samplesOpen = ref(true)
 </script>
 
 <style scoped>
@@ -161,6 +220,68 @@ const quotaTitle = computed(() => {
   color: var(--ink-faint);
 }
 
+.samples {
+  width: 100%;
+}
+.samples-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.samples-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.chev {
+  color: var(--ink-faint);
+}
+.samples-list {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.sample-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--ink-soft);
+  transition: background 0.14s;
+}
+.sample-item:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.sample-item img {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-3);
+  flex-shrink: 0;
+}
+.sample-title {
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .foot {
   margin-top: auto;
   display: flex;
@@ -171,26 +292,57 @@ const quotaTitle = computed(() => {
   border-top: 1px solid var(--line);
 }
 .quota {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: var(--ink-soft);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   cursor: default;
 }
-.quota-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.quota-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
-.quota-dot.ok {
+.quota-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.quota-percent {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.quota-reset {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+.quota-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.quota-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+.quota-bar-fill.ok {
   background: var(--ok);
 }
-.quota-dot.mid {
+.quota-bar-fill.mid {
   background: var(--red-strong);
 }
-.quota-dot.low {
+.quota-bar-fill.low {
   background: var(--danger);
 }
 .acct {
@@ -199,7 +351,9 @@ const quotaTitle = computed(() => {
   color: var(--ink-faint);
 }
 .logout {
-  padding: 7px 13px;
+  width: 100%;
+  justify-content: center;
+  padding: 9px 13px;
   font-size: 0.82rem;
 }
 
@@ -212,8 +366,9 @@ const quotaTitle = computed(() => {
   .brand-name,
   .nav-label,
   .nav-section,
-  .quota-text,
-  .acct {
+  .quota,
+  .acct,
+  .samples {
     display: none;
   }
   .nav-item {

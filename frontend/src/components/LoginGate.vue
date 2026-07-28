@@ -10,25 +10,14 @@
       <h1 class="gate-title">CoStar</h1>
       <p class="gate-sub">함께 출연한 작품을 얼굴로 잇다</p>
       <p class="gate-note">
-        공개 데모입니다. 비용 보호를 위해 <strong>패스코드</strong>로 접속하며,
+        누구나 자유롭게 둘러볼 수 있는 공개 데모입니다.
         <br />
-        계정마다 하루 얼굴 분석 횟수가 제한됩니다.
+        비용 보호를 위해 하루 사용량이 제한됩니다.
       </p>
 
-      <form class="gate-form" @submit.prevent="submit">
-        <input
-          ref="input"
-          v-model="passcode"
-          type="password"
-          class="field gate-input"
-          placeholder="패스코드"
-          autocomplete="off"
-          :disabled="loading"
-        />
-        <button type="submit" class="btn gate-btn" :disabled="loading || !passcode.trim()">
-          {{ loading ? '확인 중…' : '입장' }}
-        </button>
-      </form>
+      <button class="btn gate-btn" :disabled="loading" @click="enter">
+        {{ loading ? '입장 중…' : '입장하기' }}
+      </button>
 
       <transition name="fade">
         <p v-if="error" class="gate-error">{{ error }}</p>
@@ -38,25 +27,24 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { store } from '../store.js'
 
-const passcode = ref('')
+// 공개 데모: 비밀번호 입력 없이 클릭 한 번으로 공용 demo 계정에 로그인한다.
+// 실제 비용 보호는 패스코드가 아니라 계정/사이트 일일 쿼터가 담당한다.
+const DEMO_PASSCODE = 'demo1234'
+
 const loading = ref(false)
 const error = ref('')
-const input = ref(null)
 
-onMounted(() => input.value?.focus())
-
-async function submit() {
-  if (loading.value || !passcode.value.trim()) return
+async function enter() {
+  if (loading.value) return
   loading.value = true
   error.value = ''
   try {
-    await store.login(passcode.value.trim())
+    await store.login(DEMO_PASSCODE)
   } catch (err) {
-    error.value = err.message || '로그인에 실패했습니다.'
-    passcode.value = ''
+    error.value = err.message || '입장에 실패했습니다. 잠시 후 다시 시도해 주세요.'
   } finally {
     loading.value = false
   }
@@ -123,21 +111,9 @@ async function submit() {
   font-weight: 600;
 }
 
-.gate-form {
+.gate-btn {
   width: 100%;
   margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.gate-input {
-  text-align: center;
-  letter-spacing: 0.1em;
-  font-family: var(--font-mono);
-}
-
-.gate-btn {
   justify-content: center;
   padding: 12px;
   font-size: 0.95rem;

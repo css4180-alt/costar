@@ -32,3 +32,6 @@ docs/KICKOFF.md
 .idea/
 .vscode/
 *.swp
+
+# 로컬 테스트용 샘플 이미지(영화 스틸 등 저작권 콘텐츠) — 공개 리포에 커밋하지 않음
+frontend/public/samples/
