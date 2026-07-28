@@ -763,9 +763,13 @@ async function pollJob() {
   cursor: pointer;
 }
 .name {
+  align-self: stretch;
   font-weight: 700;
   font-size: 1rem;
   color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tmdb-line {
   font-family: var(--font-mono);
